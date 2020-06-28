@@ -1,0 +1,2447 @@
+﻿<%@ Master Language="C#" MasterPageFile="~/Root.master" AutoEventWireup="true" CodeBehind="WFMain2.master.cs" Inherits="eCAR3Web.WFMainMaster2" %>
+<%@ MasterType VirtualPath="~/Root.master" %>
+
+<%-- This is the master page for workflow activities --%>
+<asp:Content ID="Content2" ContentPlaceHolderID="Content" runat="server">
+
+    <style>
+        .right {
+            text-align: right;
+        }
+    </style>
+
+    <script type="text/javascript">
+
+        //var gOldCar; // We need this discoverable on a global scope.
+        var newCar;// We need this discoverable on a global scope.
+
+        function checkIfDataHasChangedAndIfSoReturnJsonForThisField(field) { // field is also the control id.
+            try {
+                console.log('In WFMain2.master.checkIfDataHasChangedAndIfSoReturnJsonForThisField(' + field + ').');
+                // THIS FUNCTION HAS TO DATA TYPE CHECKING, AND DISCOVERY OF THE FIELD TYPES: eg: DropDownListBox, TextBox, etc.
+                var v; // v is for value.
+                var json = '';
+                var elem = document.getElementById(field);
+                if (!elem) {
+                    console.log('In checkIfDataHasChangedAndIfSoReturnJsonForThisField(): Element is undefined? Cannot get tagName maybe.');
+                } else {
+                    var tagName = elem.tagName.toUpperCase();
+                    switch (tagName) {
+                        case 'SELECT':
+                            v = $(elem).val();
+                            console.log('IN SELECT v=' + v);
+                            if (v && v != gCar[field]) { // Check if the value has changed.
+                                json = '"' + field + '": ' + '"' + v + '"'; // If not, then prepare the json.
+                            }
+                            break;
+                        case 'INPUT':
+                            var inputType = elem.type.toUpperCase();
+                            switch (inputType) {
+                                case 'RADIO':
+                                    var rbYes = document.getElementById(field);
+                                    field = field.split('_Yes')[0];
+                                    var rbNoId = field + '_No';
+                                    var rbNo = document.getElementById(rbNoId);
+                                    if ($(rbYes).prop('checked') == true) {
+                                        console.log('rbYes');
+                                        v = 'true';
+                                    } else if ($(rbNo).prop('checked') == true) {
+                                        console.log('rbNo');
+                                        v = 'false';
+                                    } else {
+                                        console.log('Neither rbYes or rbNo');
+                                        v = null;
+                                    }
+                                    var oldBitValue;
+                                    switch (gCar[field]) {
+                                        case true:
+                                            oldBitValue = 'true';
+                                            break;
+                                        case false:
+                                            oldBitValue = 'false';
+                                            break;
+                                        default:
+                                            oldBitValue = null;
+                                    }
+                                    console.log('XXXXXXXXXXXXXX:>>>> v: ' + v + ', oldBitValue: ' + oldBitValue + ', field: ' + field + ', gCar[field]: ' + gCar[field]);
+                                    if (v != oldBitValue) { // Check if the value has changed.
+                                        json = '"' + field + '": ' + v; // If not, then prepare the json.
+                                    }
+                                    break;
+                                case 'TEXT':
+                                    v = elem.value;
+                                    if (v != gCar[field]) { // Check if the value has changed.
+                                        json = '"' + field + '": ' + '"' + v + '"'; // If not, then prepare the json.
+                                    }
+                                    break;
+                                default:
+                                    alert(inputType + ' is not a valid INPUT tag type.');
+                            }
+                            break;
+                        case 'TEXTAREA':
+                            v = elem.value;
+                            if (v != gCar[field]) { // Check if the value has changed.
+                                json = '"' + field + '": ' + '"' + v + '"'; // If not, then prepare the json.
+                            }
+                            break;
+                        case 'DIV':
+                            v = elem.__quill.root.innerHTML;
+                            // #PFG - this needsto be redone so that ALL chars are escaped
+                            v = v.replace(/"/g, '\\"');
+                            v = v.replace(/\r\n/g, '<br>');
+                            if (v != gCar[field]) { // Check if the value has changed.
+                                json = '"' + field + '": ' + '"' + v + '"'; // If not, then prepare the json.
+                            }
+                            break;
+                        default:
+                            alert(tagName + ' is not a valid HTML data entry field type.');
+                    }
+                }
+                console.log('In WFMain2.master.checkIfDataHasChangedAndIfSoReturnJsonForThisField(' + field + '): value: ' + v + ',  gCar[field]: ' + gCar[field] + ', ' + json);
+                //ONLY SHOWS/WORKS IF NOT READONLY etc.................................................................................
+                //console.log('>>>>>>> value: ' + v + ',  gCar[field]: ' + gCar[field]);
+                // If the existing value is different from the new value in the database, then we will send it back to the server so that it gets updated in the db.
+                return json;
+            } catch (e) {
+                lpSpinner.Hide();
+                console.log('Exception in WFMain2.master.checkIfDataHasChangedAndIfSoReturnJsonForThisField(' + field + '): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+        function onMasterSave(s, e) {
+            try
+            {
+                lpSpinner.SetText("Saving...");
+                lpSpinner.Show();
+
+                newCar = ''; // Now that we have our empty JSON object, lets start populating it.
+
+                var fieldsToUpdateArray = []; // Itemize the easy fields and populate using the loop below. We could use an attribute to determine this!!!!<<YES!
+
+                var sAction = s.GetText();
+
+                //RHASSELL: Check state of ReadOnly (false) to bypass
+                if (gSetReadOnly == false)
+                {
+                    //Add OrgId to the newCar to save just in case there is a change!
+                    var addOrgId = treeLocation.GetFocusedNodeKey();
+                    if (addOrgId != null && addOrgId.length > 0)
+                    {
+                        if (newCar != "")
+                        {
+                            newCar += ', ';
+                        }
+                        newCar += '"OrgId" : "' + addOrgId + '", ';
+                    }
+
+                    //Add PillarId to the newCar to save just in case there is a change!
+                    var addPillarId = treePillar.GetFocusedNodeKey();
+                    if (addPillarId != null && addPillarId.length > 0)
+                    {
+                        if (newCar != "")
+                        {
+                            newCar += ', ';
+                        }
+                        newCar += '"PillarId" : "' + addPillarId + '", ';
+                    }
+
+                    fieldsToUpdateArray.push('ProjectNumber', 'ProjectTitle', 'CostCenterNumber', 'CostCenterDesc', 'ExchangeRate',
+                        'ProjectDesc', 'ProjectReason', 'ProjectJustification', 'BookDeprLife', 'ProjectTypeId', 'ProjSponsorId',
+                        'ProjManagerId', 'CurrencyTypeId', 'StartDate', 'EndDate', 'IncCapPlanFlag_Yes', 'CapitalPlanItemId', 'FiscalYear');
+                    fieldsToUpdateArray.push('AuditRequired_Yes', 'InCapPlanFlag_Yes', 'SubstitutionFlag_Yes', 'CombPlantFlag_Yes',
+                        'AssetsAffectedFlag_Yes', 'CompBidsFlag_Yes', 'VendorContractFlag_Yes', 'ExcessCapacityFlag_Yes', 'NewTechFlag_Yes',
+                        'SpecMaintFlag_Yes', 'ExcessMaintFlag_Yes', 'LeaseReqFlag_Yes', 'SimplePaybackFlag_Yes', 'InterestRate', 'NPV', 'IRR');
+
+                    // Check if conditional fields are selected
+                    // will need to add extra fields to save 
+                    var AuditRequiredVal = $('input[name=AuditRequiredFlag]:checked').val();
+                    var InCapPlanVal = $('input[name=InCapitalPlanFlag]:checked').val();
+                    var SubstitutionVal = $('input[name=SubstitutionFlag]:checked').val();
+                    var AssetsAffectedVal = $('input[name=AssetsAffectedFlag]:checked').val();
+                    var LeaseReqVal = $('input[name=LeaseReqFlag]:checked').val();
+
+                    if (AuditRequiredVal == "Yes") {
+                        fieldsToUpdateArray.push('AuditDate');
+                    }
+
+                    if (InCapPlanVal == "No") {
+                        fieldsToUpdateArray.push('ExpenseOnlyFlag_Yes');
+                    }
+
+                    if (SubstitutionVal == "Yes") {
+                        fieldsToUpdateArray.push('SubstitutionProject');
+                    }
+
+                    if (LeaseReqVal == "Yes") {
+                        fieldsToUpdateArray.push('LeaseOwnFlag_Yes', 'LeaseBargainOptionFlag_Yes', 'LeaseNPVFlag_Yes',
+                            'UsefulLifeYears', 'LeaseTermYears', 'LeaseType');
+                    }
+
+                    if (AssetsAffectedVal == "Yes") {
+                        fieldsToUpdateArray.push('AssetWriteOffs');
+                    }
+                }
+                else
+                {
+                    if (gAllowAuditDataEntry == "true")
+                    {
+                        fieldsToUpdateArray.push('AuditRequired_Yes');
+
+                        // Check if conditional fields are selected
+                        // will need to add extra fields to save 
+                        var AuditRequiredVal = $('input[name=AuditRequiredFlag]:checked').val();
+
+                        if (AuditRequiredVal == "Yes") {
+                            fieldsToUpdateArray.push('AuditDate');
+                        }
+                    }
+                }
+
+
+                var hasAnItemBeenAdded = false;
+                for (var i = 0; i < fieldsToUpdateArray.length; i++) {
+
+                    var v = checkIfDataHasChangedAndIfSoReturnJsonForThisField(fieldsToUpdateArray[i]);
+                    if (v.length > 0) { // Check if any data is going to be sent to the database. If it is zero length, nothig needs to get put into the json package.
+                        if (hasAnItemBeenAdded == true) newCar += ', '; // Can't forget the commas!
+                        newCar += v;
+                        hasAnItemBeenAdded = true;
+                    }
+                }
+
+                if (newCar == '') { // Just checking if we have to save anything.
+                    // Do nothing.
+                    lpSpinner.Hide();
+                    console.log('There was nothing to save back to the database.');
+                }
+                else
+                {
+                    newCar = '{ ' + newCar + ' }'; // Need to surround with brackets for it to parse correctly.
+                    console.log('In WFMain2.master.onMasterSave(). gCarId: ' + gCarId + ', newCar: ' + newCar);
+
+                    //RHASSELL: Update to escape new lines, tabs and any other things before JSON parse!!
+                    var eCarNew = newCar.replace(/\n/g, "\\n").replace(/\r/g, "\\r")
+                                        .replace(/\t/g, "\\t").replace(/\v/g, "\\v");
+
+                    var car2 = JSON.parse(eCarNew); // DO THIS TO ENSURE THE JSON IS FORMATTED CORRECTLY. Currently we aren't getting good error reporting from the following call, so this helps make it more reliable....
+
+                    $.ajax({
+                        url: operationUriPrefix + "odata/CARMasters(" + gCarId + ")",
+                        dataType: "json",
+                        contentType: "application/json",
+                        type: "Patch",
+                        data: JSON.stringify(car2)
+                    }).done(function (result2) {
+                        try
+                        {
+                            lpSpinner.Hide();
+                            console.log('SUCCESSFULLY called Patch: ' + JSON.stringify(result2)); // NOTHING COMES BACK HERE, it is undefined.... not sure why this is happening.
+                            //Update our object, gCar.
+                            $.extend(gCar, car2); // // Merge the newly saved values back to the global CAR object, gCar so that it reflects the contents of the datbase.
+                            //console.log('Performed extend. gCar: ' + JSON.stringify(gCar));
+
+                            if (sAction == 'Save') {
+                                //Refresh the page
+                                location.reload(true);
+                            }
+                        }
+                        catch (e) {
+                            lpSpinner.Hide();
+                            console.log('Exception in WFMain2.master.onMasterSave():1: ' + e.message + ', ' + e.stack);
+                        }
+                    }).fail(function (data)
+                    {
+                        lpSpinner.Hide();
+                        console.log('Exception in WFMain2.master.onMasterSave():2: ' + JSON.stringify(data));
+                        var error = JSON.parse(data.responseText)["odata.error"];
+                        alert('Exception in WFMain2.master.onMasterSave():2: ' + error.message.value + ' ' + error.innererror.message); // + ', EntityValidationErrors: ' + data.EntityValidationErrors);
+                    });
+                }
+            }
+            catch (e) {
+                lpSpinner.Hide();
+                console.log('Exception in WFMain2.master.onMasterSave():3: ' + e.message + ', ' + e.stack);
+            }
+        }
+
+        function onMasterSaveComplete(s, e)
+        {
+            // This function is in the child page, if it's there at all
+            // This needs some cleaning up!
+            if (e.result == "Save" || e.result == "SaveBackground")
+            {
+                lpSpinner.Hide();
+
+                // If the action was "SaveBackground" - we don't want to call the function that shows that saving is complete
+
+                // If the only action is to save - we are done
+                if (typeof (SaveComplete) === "function" && e.result == "Save") {
+                    SaveComplete(s, e);
+                }
+            }
+            else
+            {
+                // It was an action - perform the action here
+                // This actually causes the workflow to get triggered to perform the desired action
+                lpSpinner.SetText("Triggering workflow...");
+                lpSpinner.Show();
+                cbMasterAction.PerformCallback(e.result);
+            }
+        }
+
+        function onMasterActionComplete(s, e) {
+            lpSpinner.Hide();
+
+            // Call the child page's ActionComplete function
+            // We should probably rename these appropriately
+            if (typeof (ActionComplete === "function")) {
+                ActionComplete(s, e);
+            }
+        }
+
+        function onWFComments(s, e) {
+            var sAction = s.GetText();
+            WFCommentsWindow.SetHeaderText(sAction);
+            WFCommentsWindow.Show();
+        }
+
+        function onWFCommentsSave(s, e) {
+            if (ASPxClientEdit.ValidateGroup('valComments')) {
+                WFCommentsWindow.Hide();
+            }
+
+            // Send the action along
+            // This is the key to starting the actual workflow
+            cbComments.PerformCallback(WFCommentsWindow.GetHeaderText());
+        }
+
+        function onCommentSubmit(s, e) {
+            if (ASPxClientEdit.ValidateGroup('entryGroup')) {
+                popupComments.Hide();
+
+                // Send the action along
+                // This is the key to starting the actual workflow
+                cbModal.PerformCallback(popupComments.GetHeaderText());
+
+                alert("Thank you. Your comments were submitted successfully.")
+            }
+        }
+
+        function onWFButtonClick(s, e)
+        {
+            try
+            {
+                console.log('In WFMain2.master.onWFButtonClick().');
+                var sAction = s.GetText();
+                var sTooltip = s.GetMainElement().title;
+                console.log('In WFMain2.master.onWFButtonClick(). sAction: ' + sAction + ', sTooltip: ' + sTooltip);
+
+                // We should change this to a jQuery dialog (or something else)!
+                var sPrompt = "Are you sure you want to " + sTooltip + "?";
+                if (!confirm(sPrompt)) {
+                    return;
+                }
+
+                var spinnerMessage = sTooltip;
+                if (sTooltip.indexOf('ubmit') > -1) {
+                    spinnerMessage = sTooltip.replace("ubmit", "ubmitting"); // Our tooltip may say "Submit your comments", so we are changing to "Submitting your comments...".
+                }
+                lpSpinner.SetText(spinnerMessage + "...");
+                lpSpinner.Show();
+
+
+                // This is a kludge for now - whether or not to validate should be in the XML code!
+                // This will actually have the effect of just saving (and showing the missing fields dialog)
+                // if the page is invalid
+
+                // FIX THIS - WHETHER OR NOT VALIDATION IS REQUIRED SHOULD COME FROM XML!
+                // But for the moment this does Javascript client side checking to see if we can Submit or Approve.
+
+                // If the user pressed the "Submit" button, we now have to check that they have filled in everything.
+                if (sAction == 'Submit') {
+                    var isValidated = false;
+                    var validationMessage = '';
+                    // WE NEED TO FIGURE OUT IF THIS SUBMIT is for a "New CAR", or "Adding Comments".
+                    try
+                    {
+                        // VALIDATION. Todd is adding this 3-27-19.
+                        // Here are the requirements for the different areas when creating a CAR:
+                        //     Cost Sheet - Required >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> do this by checking for a single item in CostSheet table for carid
+                        //     Spend Forecast – Required for Capital projects only >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> if it is a capital project, require 1 spend forecast item
+                        //     Attachments – Required, at a min we need at least a quote. Paybacks absolutely require an attachment. >>> require at least 1 attachment
+
+                        var costSheetRowCount = $('#jsGridCostSheet').dxDataGrid('instance')._controllers.data._dataSource.totalCount();
+                        var attachmentsList = fmAttachments.GetItems();
+                        var attachmentsCount = attachmentsList.length; // returns 0 or a number greater than 0.
+                        //var totalCapital = Number($('#projectedCapitalSpending').text());   //Total Capital Spending
+                        //var totalExpense = Number($('#amountForecast').text());             //Total Amount Forecast
+
+                        if (costSheetRowCount == 0) {
+                            validationMessage = 'Your CAR needs to have at least one item entered on the "Cost Sheet".';
+                        }
+                        else
+                        {
+                            var hasProjectDesc = $('#ProjectDesc').text();
+                            var hasProjectReason = $('#ProjectReason').text();
+                            var hasProjectJustification = $('#ProjectJustification').text();
+
+                            // Are all project descriptions entered?
+                            if (hasProjectDesc === "" || hasProjectReason === "" || hasProjectJustification === "") {
+                                validationMessage = 'Your CAR must have the Project Description, Project Reason, and Project Justification entered.';
+                            }
+                            else {
+                                var isACapitalProject = new Boolean($('#InCapPlanFlag_Yes').is(':checked'));
+                                if (isACapitalProject == true) {
+                                    // It is a Capital Project.
+                                    var isGridForecastDefined = $("#jsGridSpendForecast").dxDataGrid("instance");
+                                    var spendForecastRowCount = 0;
+                                    if (typeof isGridForecastDefined !== 'undefined') {
+                                        spendForecastRowCount = isGridForecastDefined.getVisibleRows(); // returns 0 or number greater than 0.
+                                    }
+                                    if (spendForecastRowCount == 0) {
+                                        validationMessage = 'This CAR is a "Capital Project", so needs to have at least one item entered on the "Spend Forecast".';
+                                    }
+                                    else {
+                                        if (attachmentsCount == 0) {
+                                            validationMessage = 'Your CAR needs to have at least one attachment. At a minumum, at least one quote needs to be attached.';
+                                        }
+                                        else {
+                                            // It is OK to SUBMIT!
+                                            isValidated = true;
+                                        }
+                                    }
+                                }
+                                else {
+                                    // Not a Capital Project, but an Expense Project.
+                                    if (attachmentsCount == 0) {
+                                        validationMessage = 'Your CAR needs to have at least one attachment. At a minumum, at least one quote needs to be attached.';
+                                    }
+                                    else {
+                                        // It is OK to SUBMIT!
+                                        isValidated = true;
+                                    }
+                                }
+
+                            }
+                        }
+                    }
+                    catch (e) {
+                        // It must be a "Submit" for adding comments.
+                        var _comments = txtComments.GetValue();
+                        if (_comments && _comments.length > 0) {
+                            // It is OK to SUBMIT!
+                            isValidated = true;
+                        }
+                        else {
+                            //validationMessage = 'Comments of at least 10 characters are required before you can "Submit".';
+                            isValidated = true;
+                        }
+                    }
+
+                    if (!isValidated)
+                    {
+                        // Validation has FAILED. Present a message to the user.
+                        lpSpinner.SetText('Cancelling CAR submission...');
+                        alert(validationMessage);
+                        sAction = "SaveBackground"; // The user still has stuff to do before submitting this CAR. This action changes it so the CAR won't submit.
+                    }
+                    else
+                    {
+                        //Save CAR: "Submit" action
+                        onMasterSave(s, e);
+                        // If we are here, it means that everything has been saved and we are submitting the CAR. Setting isDirty to false so that the dialog "Do you wish to leave this page" is not presented to the user.
+                        console.log('In WFMain2.master.onWFButtonClick(). Calling cbMasterSave.PerformCallback("' + sAction + '"). Setting isDirty to false so that the dialog "Do you wish to leave this page" is not presented to the user.');
+                        isDirty = false;
+                    }
+                }
+                else if (sAction == 'Approve' || sAction == 'Revise/Hold' || sAction == 'Decline')
+                {                    
+                    //Save CAR: "Approve"/"Revise/Hold"/"Decline" action
+                    onMasterSave(s, e);
+                }
+
+                cbMasterSave.PerformCallback(sAction);
+            }
+            catch (e) {
+                console.log('Exception in WFMain2.master.onWFButtonClick(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+
+        // #PFG - Fix this later
+        function removeTags(str) {
+            if ((str === null) || (str === '')) {
+                return false;
+            }
+            else {
+                str = str.toString();
+            }
+            return str.replace(/(<([^>]+)>)/ig, '');
+        };
+
+
+        function getBasicDataHtmlForPrint() {
+            try {
+                ///HEADING
+                var projectTitle = (gSetReadOnly) ? $('#ProjectTitle').text() : $('#ProjectTitle').val();
+                var projectNumber = (gSetReadOnly) ? $('#ProjectNumber').text() : $('#ProjectNumber').val();
+                var location = (gSetReadOnly) ? $('#Location').text() : ddeLocation.GetText();
+                var projectManager = (gSetReadOnly) ? $('#projectManager').text() : $("#ProjManagerId option:selected").text();
+                var costNumber = (gSetReadOnly) ? $('#CostCenterNumber').text() : $('#CostCenterNumber').val();
+                var costDescription = (gSetReadOnly) ? $('#CostCenterDesc').text() : $('#CostCenterDesc').val();
+                var currencyType = (gSetReadOnly) ? $('#currencyType').text() : $("#CurrencyTypeId option:selected").text();
+                var exchangeRate = (gSetReadOnly) ? $('#ExchangeRate').text() : $('#ExchangeRate').val();
+                var auditRequired = (gSetReadOnly) ? $('#AuditRequired').text() : $("input[name='AuditRequiredFlag']:checked").val();
+                var auditDate = (gSetReadOnly) ? $('#AuditDate').text() : $('#AuditDate').val();
+
+                ///CAR DETAILS
+                var projectType = (gSetReadOnly) ? $('#projectType').text() : $("#ProjectTypeId option:selected").text();
+                var combinedPlant = (gSetReadOnly) ? $('#CombPlantFlag').text() : $("input[name='CombPlantFlag']:checked").val();
+                var projectSponsor = (gSetReadOnly) ? $('#projectSponsor').text() : $("#ProjSponsorId option:selected").text();
+                var pillarType = (gSetReadOnly) ? $('#Pillar').text() : ddePillar.GetText();
+                var startDate = (gSetReadOnly) ? $('#StartDate').text() : $('#StartDate').val();
+                var endDate = (gSetReadOnly) ? $('#EndDate').text() : $('#EndDate').val();
+                var numberOfDays = (gSetReadOnly) ? $('#numberOfDays').text() : $('#numberOfDays').val();
+                var fiscalYear = (gSetReadOnly) ? $('#FiscalYear').text() : $('#FiscalYear').val();
+                var depreciationLife = (gSetReadOnly) ? $('#BookDeprLife').text() : $("#BookDeprLife option:selected").text();
+
+                ///CAPITAL PLAN STATEMENTS
+                var inCapitalPlan = (gSetReadOnly) ? $('#InCapPlanFlag').text() : $("input[name='InCapitalPlanFlag']:checked").val();
+                var isExpense = (gSetReadOnly) ? $('#ExpenseOnlyFlag').text() : $("input[name='ExpenseOnlyFlag']:checked").val();
+                var incCapitalPlan = (gSetReadOnly) ? $('#IncCapPlanFlag').text() : $("input[name='IncCapPlanFlag']:checked").val();
+                var capitalPlanItem = (gSetReadOnly) ? $('#CapitalPlanItem').text() : $("#CapitalPlanItemId option:selected").text();
+                var substitution = (gSetReadOnly) ? $('#SubstitutionFlag').text() : $("input[name='SubstitutionFlag']:checked").val();
+                var substitutionProject = (gSetReadOnly) ? $('#SubstitutionProject').text() : $('#SubstitutionProject').val();
+                var assetsAffected = (gSetReadOnly) ? $('#AssetsAffectedFlag').text() : $("input[name='AssetsAffectedFlag']:checked").val();
+                var assetWriteOffs = (gSetReadOnly) ? $('#AssetWriteOffs').text() : $('#AssetWriteOffs').val();
+                var competitiveBids = (gSetReadOnly) ? $('#CompBidsFlag').text() : $("input[name='CompBidsFlag']:checked").val();
+                var vendorContract = (gSetReadOnly) ? $('#VendorContractFlag').text() : $("input[name='VendorContractFlag']:checked").val();
+                var excessCapacity = (gSetReadOnly) ? $('#ExcessCapacityFlag').text() : $("input[name='ExcessCapacityFlag']:checked").val();
+                var newTech = (gSetReadOnly) ? $('#NewTechFlag').text() : $("input[name='NewTechFlag']:checked").val();
+                var specialMaintenance = (gSetReadOnly) ? $('#SpecMaintFlag').text() : $("input[name='SpecMaintFlag']:checked").val();
+                var excessMaintenance = (gSetReadOnly) ? $('#ExcessMaintFlag').text() : $("input[name='ExcessMaintFlag']:checked").val();
+                var simplePaybackFlag = (gSetReadOnly) ? $('#SimplePaybackFlag').text() : $("input[name='SimplePaybackFlag']:checked").val();
+
+                ///LEASE DATA
+                var leaseRequired = (gSetReadOnly) ? $('#LeaseReqFlag').text() : $("input[name='LeaseReqFlag']:checked").val();
+                var ownedItems = (gSetReadOnly) ? $('#LeaseOwnFlag').text() : $("input[name='LeaseOwnFlag']:checked").val();
+                var bargainOptions = (gSetReadOnly) ? $('#LeaseBargainOptionFlag').text() : $("input[name='LeaseBargainOptionFlag']:checked").val();
+                var usefulLife = (gSetReadOnly) ? $('#UsefulLifeYears').text() : $('#UsefulLifeYears').val();
+                var leaseTerms = (gSetReadOnly) ? $('#LeaseTermYears').text() : $('#LeaseTermYears').val();
+                var leaseRatio = (gSetReadOnly) ? $('#LeaseRatio').text() : $('#LeaseRatio').val();
+                var leaseNPV = (gSetReadOnly) ? $('#LeaseNPVFlag').text() : $("input[name='LeaseNPVFlag']:checked").val();
+                var leaseType = (gSetReadOnly) ? $('#LeaseType').text() : $("#LeaseType option:selected").text();
+
+
+
+                var Html = "<div id=\"cmBasicInfo\" class=\"container\">"
+                    + "<div class=\"row\">"
+                    + "<div class=\"col-xs-6\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">HEADING</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Project Title</label></div><div class=\"col-xs-6\"><label>" + projectTitle + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Project #</label></div><div class=\"col-xs-6\"><label>" + projectNumber + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Location</label></div><div class=\"col-xs-6\"><label>" + location + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Project Manager</label></div><div class=\"col-xs-6\"><label>" + projectManager + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Cost Center #</label></div><div class=\"col-xs-6\"><label>" + costNumber + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Cost Center Description</label></div><div class=\"col-xs-6\"><label>" + costDescription + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Currency Type</label></div><div class=\"col-xs-6\"><label>" + currencyType + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Exchange Rate</label></div><div class=\"col-xs-6\"><label>" + exchangeRate + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Audit</label></div><div class=\"col-xs-6\"><label>" + auditRequired + "</label></div></div>";
+
+                if (auditRequired === "Yes") {
+                    Html += "<div class=\"row\"><div class=\"col-xs-6\"><label>Audit Date</label></div><div class=\"col-xs-6\"><label>" + auditDate + "</label></div></div>";
+                }
+
+                Html += "</div>"
+                    + "<div class=\"col-xs-6\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">CAR DETAILS</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Project Type</label></div><div class=\"col-xs-6\"><label>" + projectType + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Is Combined Plant?</label></div><div class=\"col-xs-6\"><label>" + combinedPlant + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Project Sponsor</label></div><div class=\"col-xs-6\"><label>" + projectSponsor + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Pillar Type</label></div><div class=\"col-xs-6\"><label>" + pillarType + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Project Start Date</label></div><div class=\"col-xs-6\"><label>" + startDate + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Completion Date</label></div><div class=\"col-xs-6\"><label>" + endDate + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label># of Days</label></div><div class=\"col-xs-6\"><label>" + numberOfDays + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Fiscal Year</label></div><div class=\"col-xs-6\"><label>" + fiscalYear + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Depreciation Life</label></div><div class=\"col-xs-6\"><label>" + depreciationLife + "</label></div></div>"
+                    + "</div>"
+                    + "</div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\">"
+                    + "<div class=\"col-xs-6\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">CAPITAL PLAN STATEMENTS</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>In Capital Plan?</label></div><div class=\"col-xs-6\">" + inCapitalPlan + "</label></div></div>";
+
+                if (inCapitalPlan === "No") {
+                    Html += "<div class=\"row\"><div class=\"col-xs-6\"><label>Is it Expense Only?</label></div><div class=\"col-xs-6\">" + isExpense + "</label></div></div>";
+                }
+
+                Html += "<div class=\"row\"><div class=\"col-xs-6\"><label>Incremental to Capital Plan?</label></div><div class=\"col-xs-6\">" + incCapitalPlan + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Capital Plan Item</label></div><div class=\"col-xs-6\">" + capitalPlanItem + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Substitution?</label></div><div class=\"col-xs-6\">" + substitution + "</label></div></div>";
+
+                if (substitution === "Yes") {
+                    Html += "<div class=\"row\"><div class=\"col-xs-6\"><label>Substitution Project</label></div><div class=\"col-xs-6\">" + substitutionProject + "</label></div></div>";
+                }
+
+                Html += "<div class=\"row\"><div class=\"col-xs-6\"><label>Assets affected (transferring, retiring, etc.) as part of this project?</label></div><div class=\"col-xs-6\">" + assetsAffected + "</label></div></div>";
+
+                if (assetsAffected === "Yes") {
+                    Html += "<div class=\"row\"><div class=\"col-xs-6\"><label>Asset Write-Offs (Note: CTID Attachment Required)</label></div><div class=\"col-xs-6\">" + assetWriteOffs + "</label></div></div>";
+                }
+
+                Html += "<div class=\"row\"><div class=\"col-xs-6\"><label>Were competitive bids received for this project?</label></div><div class=\"col-xs-6\">" + competitiveBids + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Is there a vendor contract(s)?</label></div><div class=\"col-xs-6\">" + vendorContract + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Does excess capacity exist elsewhere within Smithfield?</label></div><div class=\"col-xs-6\">" + excessCapacity + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Is this an expenditure for new technology?</label></div><div class=\"col-xs-6\">" + newTech + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Will special maintenance skills need to be added?</label></div><div class=\"col-xs-6\">" + specialMaintenance + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Will excess operating or maintenance expense be added?</label></div><div class=\"col-xs-6\">" + excessMaintenance + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Is this a Simple Payback?</label></div><div class=\"col-xs-6\">" + simplePaybackFlag + "</label></div></div>"
+                    + "</div>"
+                    + "<div class=\"col-xs-6\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">LEASE DATA</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Is a lease required?</label></div><div class=\"col-xs-6\"><label>" + leaseRequired + "</label></div></div>";
+
+                if (leaseRequired === "Yes") {
+                    Html += "<div class=\"row\"><div class=\"col-xs-6\"><label>Will Smithfield own the item(s) at the end of the lease term?</label></div><div class=\"col-xs-6\"><label>" + ownedItems + "</label></div></div>"
+                        + "<div class=\"row\"><div class=\"col-xs-6\"><label>Does the lease contain a bargain purchase option?</label></div><div class=\"col-xs-6\"><label>" + bargainOptions + "</label></div></div>"
+                        + "<div class=\"row\"><div class=\"col-xs-6\"><label>Economic Useful Life of the item (years)</label></div><div class=\"col-xs-6\"><label>" + usefulLife + "</label></div></div>"
+                        + "<div class=\"row\"><div class=\"col-xs-6\"><label>Lease Term (years)</label></div><div class=\"col-xs-6\"><label>" + leaseTerms + "</label></div></div>"
+                        + "<div class=\"row\"><div class=\"col-xs-6\"><label>Lease to Economic Life Ratio</label></div><div class=\"col-xs-6\"><label>" + leaseRatio + "</label></div></div>"
+                        + "<div class=\"row\"><div class=\"col-xs-6\"><label>Is NPV of the lease payments >= 90% of the FMV?</label></div><div class=\"col-xs-6\"><label>" + leaseNPV + "</label></div></div>"
+                        + "<div class=\"row\"><div class=\"col-xs-6\"><label>Lease Type</label></div><div class=\"col-xs-6\"><label>" + leaseType + "</label></div></div>";
+                }
+                Html += "</div>"
+                    + "</div>"
+                    + "</div>"
+                    + "<br><br>";
+
+                return Html;
+            }
+            catch (e) {
+                alert('Exception in WFMain2.master.getBasicDataHtmlForPrint(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+
+        function getDescriptionHtmlForPrint() {
+            try {
+                ///DESCRIPTION
+                var ProjectDesc = (gSetReadOnly) ? $('#ProjectDesc').text() : projectDescEditor.root.innerHTML;
+                var ProjectReason = (gSetReadOnly) ? $('#ProjectReason').text() : projectReasonEditor.root.innerHTML;
+                var ProjectJustification = (gSetReadOnly) ? $('#ProjectJustification').text() : projectJustificationEditor.root.innerHTML;
+
+                var Html = "<div id=\"cmDescription\" class=\"container\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">DESCRIPTION</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><label>What is the proposed project?</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><label>" + ProjectDesc + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><label>Why do you want to do this project?</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><label>" + ProjectReason + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><label>Project Justification.</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><label>" + ProjectJustification + "</label></div></div>"
+                    + "</div>"
+                    + "<br><br>";
+
+                return Html;
+            }
+            catch (e) {
+                alert('Exception in WFMain2.master.getDescriptionHtmlForPrint(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+
+        function getCostSheetCategory(param) {
+            try {
+                switch (param) {
+                    case "B":
+                        return "Buildings";
+                    case "C":
+                        return "Computers";
+                    case "E":
+                        return "Equipment";
+                    case "S":
+                        return "Services";
+                    default:
+                        return "None";
+                }
+            }
+            catch (e) {
+                console.log('Exception in WFMAIN2.master.getCostSheetCategory(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+
+        function getFixedCostCategory(param) {
+            try {
+                switch (param) {
+                    case "2":
+                        return "Freight";
+                    case "3":
+                        return "Outside Engineering";
+                    case "4":
+                        return "Tax";
+                    case "5":
+                        return "Capitalized Interest";
+                    default:
+                        return "Contingency";
+                }
+            }
+            catch (e) {
+                console.log('Exception in WFMAIN2.master.getFixedCostCategory(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+
+
+        function getCostSheetHtmlForPrint() {
+            try {
+                console.log('In WFMain2.master.getCostSheetHtmlForPrint().');
+
+                /////////////////////////////////
+                /// Calculate the COST SHEETS ///
+                /////////////////////////////////
+                var table = "<table class=\"table table-bordered\">";
+                table += "<thead><tr>"
+                    + "<th scope=\"col\">Quantity</th>"
+                    + "<th scope=\"col\">Category</th>"
+                    + "<th scope=\"col\">Description</th>"
+                    + "<th scope=\"col\">Capital</th>"
+                    + "<th scope=\"col\">Expense</th>"
+                    + "<th scope=\"col\">Operating Lease</th>"
+                    + "<th scope=\"col\">Total</th>"
+                    + "<th scope=\"col\">Vendor</th>"
+                    + "</tr></thead>";
+
+                ///COST SHEET
+                var costSheet = $('#jsGridCostSheet').dxDataGrid('instance');
+                var cRows = costSheet.getVisibleRows();
+                var totalCapital = 0;
+                var totalExpense = 0;
+                var totalOperLease = 0;
+
+                table += "<tbody>";
+                for (var cRow = 0; cRow < cRows.length; cRow++) {
+                    var vendor = (costSheet.cellValue(cRow, "Vendor") != null) ? costSheet.cellValue(cRow, "Vendor") : '';
+                    var tempRow = "<tr>"
+                        + "<th scope=\"row\">" + costSheet.cellValue(cRow, "Quantity") + "</th>"
+                        + "<td>" + getCostSheetCategory(costSheet.cellValue(cRow, "Category")) + "</td>"
+                        + "<td>" + costSheet.cellValue(cRow, "Description") + "</td>"
+                        + "<td>" + "$" + costSheet.cellValue(cRow, "Capital") + "</td>"
+                        + "<td>" + "$" + costSheet.cellValue(cRow, "Expense") + "</td>"
+                        + "<td>" + "$" + costSheet.cellValue(cRow, "OperLease") + "</td>"
+                        + "<td>" + "$" + costSheet.cellValue(cRow, "Total") + "</td>"
+                        + "<td>" + vendor + "</td>"
+                        + "</tr>";
+                    //Add row to table
+                    table += tempRow;
+
+                    //Add to get totals
+                    totalCapital += Math.round(costSheet.cellValue(cRow, "Quantity") * costSheet.cellValue(cRow, "Capital"));
+                    totalExpense += Math.round(costSheet.cellValue(cRow, "Quantity") * costSheet.cellValue(cRow, "Expense"));
+                    totalOperLease += Math.round(costSheet.cellValue(cRow, "Quantity") * costSheet.cellValue(cRow, "OperLease"));
+                }
+
+                //Add the summary row
+                table += "<tr>"
+                    + "<th scope=\"row\"></th>"
+                    + "<td></td>"
+                    + "<td><b>Total</b></td>"
+                    + "<td><b>" + "$" + totalCapital + "</b></td>"
+                    + "<td><b>" + "$" + totalExpense + "</b></td>"
+                    + "<td><b>" + "$" + totalOperLease + "</b></td>"
+                    + "<td><b>" + "$" + (totalCapital + totalExpense + totalOperLease) + "</b></td>"
+                    + "<td></td>"
+                    + "</tr>";
+
+                //Add ending tags
+                table += "</tbody>";
+                table += "</table>";
+
+
+
+                /////////////////////////////////
+                /// Calculate the FIXED COSTS ///
+                /////////////////////////////////
+                var table2 = "<table class=\"table table-bordered\">";
+                table2 += "<thead><tr>"
+                    + "<th scope=\"col\">Percentage</th>"
+                    + "<th scope=\"col\">Category</th>"
+                    + "<th scope=\"col\">Capital</th>"
+                    + "<th scope=\"col\">Expense</th>"
+                    + "<th scope=\"col\">Operating Lease</th>"
+                    + "<th scope=\"col\">Total</th>"
+                    + "</tr></thead>";
+
+                var fixedCost = $('#jsGridFixedCost').dxDataGrid('instance');
+                var fRows = fixedCost.getVisibleRows();
+
+                table2 += "<tbody>";
+                for (var fRow = 0; fRow < fRows.length; fRow++) {
+                    var tempRow2 = "<tr>"
+                        + "<th scope=\"row\">" + fixedCost.cellValue(fRow, "Percentage") + "</th>"
+                        + "<td>" + getFixedCostCategory(fixedCost.cellValue(fRow, "Category")) + "</td>"
+                        + "<td>" + "$" + fixedCost.cellValue(fRow, "Capital") + "</td>"
+                        + "<td>" + "$" + fixedCost.cellValue(fRow, "Expense") + "</td>"
+                        + "<td>" + "$" + fixedCost.cellValue(fRow, "Operating Lease") + "</td>"
+                        + "<td>" + "$" + fixedCost.cellValue(fRow, "Total") + "</td>"
+                        + "</tr>";
+                    //Add row to table
+                    table2 += tempRow2;
+                }
+
+                //Add summary rows
+                var fixedSummary = $('#jsGridSummaryCost').dxDataGrid('instance');
+                var sRows = fixedSummary.getVisibleRows();
+                for (var sRow = 0; sRow < sRows.length; sRow++) {
+                    var tempRow3 = "<tr>"
+                        + "<th scope=\"row\"></th>"
+                        + "<td><b>" + fixedSummary.cellValue(sRow, "Title") + "</b></td>"
+                        + "<td><b>" + "$" + fixedSummary.cellValue(sRow, "Capital") + "</b></td>"
+                        + "<td><b>" + "$" + fixedSummary.cellValue(sRow, "Expense") + "</b></td>"
+                        + "<td><b>" + "$" + fixedSummary.cellValue(sRow, "Operating Lease") + "</b></td>"
+                        + "<td><b>" + "$" + fixedSummary.cellValue(sRow, "Total") + "</b></td>"
+                        + "</tr>";
+                    //Add row to table
+                    table2 += tempRow3;
+                }
+
+
+                table2 += "</tbody>";
+                table2 += "</table>";
+
+
+                ///Create html for the COST SHEET
+                var Html = "<div id=\"cmCostSheet\" class=\"container\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">COST SHEET</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\">" + table + "</div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">FIXED (PERCENTAGE-BASED) COST</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\">" + table2 + "</div></div>"
+                    + "</div>"
+                    + "<br><br>";
+
+                return Html;
+
+            }
+            catch (e) {
+                console.log('Exception in WFMAIN2.master.getCostSheetHtmlForPrint(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+
+        function getSpendForecastHtmlForPrint() {
+            try {
+                console.log('In WFMain2.master.getSpendForecastHtmlForPrint().');
+
+                var capitalSpending = $('#projectedCapitalSpending').text();
+                var amountForecast = $('#amountForecast').text();
+                var amountLeft = $('#amountLeftToForecast').text();
+
+                ///SPEND FORECAST
+                var spendForecast = $('#jsGridSpendForecast').dxDataGrid('instance');
+                var sRows = spendForecast.getVisibleRows();
+                var sColumns = spendForecast.getVisibleColumns();
+
+                ////////////////////////////////////
+                /// Calculate the SPEND FORECAST ///
+                ////////////////////////////////////
+                var table = "<table class=\"table table-bordered\">";
+                table += "<thead><tr>"
+                for (var sColumn = 0; sColumn < sColumns.length; sColumn++) {
+                    if (sColumns[sColumn].dataField) {
+                        var tempCol = "<th scope=\"col\">" + sColumns[sColumn].dataField + "</th>";
+                        table += tempCol;                       //Add column to table
+                    }
+                }
+
+                table += "</tr></thead>";
+
+
+                table += "<tbody>";
+                for (var sRow = 0; sRow < sRows.length; sRow++) {
+                    var tempRow = "<tr>";
+                    for (var sColumn = 0; sColumn < sColumns.length; sColumn++) {
+                        if (sColumn == 0) {
+                            tempRow += "<th scope=\"row\">" + spendForecast.cellValue(sRow, sColumns[sColumn].dataField) + "</th>";
+                        }
+                        else if (sColumns[sColumn].dataField) {
+                            var cellVal = (spendForecast.cellValue(sRow, sColumns[sColumn].dataField) != null) ? "$" + spendForecast.cellValue(sRow, sColumns[sColumn].dataField) : "";
+                            tempRow += "<td>" + cellVal + "</td>";
+                        }
+                    }
+
+                    tempRow += "</tr>";
+                    table += tempRow;                    //Add row to table
+                }
+
+                //Add summary rows
+                var spendSummary = $('#jsGridSpendForecastSummary').dxDataGrid('instance');
+                var spRows = spendSummary.getVisibleRows();
+                var spColumns = spendSummary.getVisibleColumns();
+                for (var spRow = 0; spRow < spRows.length; spRow++) {
+                    var tempRow2 = "<tr>";
+                    for (var spColumn = 0; spColumn < spColumns.length; spColumn++) {
+                        if (spColumn == 0) {
+                            tempRow2 += "<th scope=\"row\">" + spendSummary.cellValue(spRow, spColumns[spColumn].dataField) + "</th>";
+                        }
+                        else if (spColumns[spColumn].dataField) {
+                            var cellVal = (spendSummary.cellValue(spRow, spColumns[spColumn].dataField) != null) ? "$" + spendSummary.cellValue(spRow, spColumns[spColumn].dataField) : "";
+                            tempRow2 += "<td><b>" + cellVal + "</b></td>";
+                        }
+                    }
+
+                    tempRow2 += "</tr>";
+                    //Add row to table
+                    table += tempRow2;
+                }
+
+                //
+                table += "</tbody>";
+                table += "</table>";
+
+
+                ///Create html for the SPEND FORECAST
+                var Html = "<div id=\"cmSpendForecast\" class=\"container\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">FORECAST PARAMETERS</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Projected Capital Spending</label></div><div class=\"col-xs-6\">" + capitalSpending + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Amount Forecast</label></div><div class=\"col-xs-6\">" + amountForecast + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>Amount left to forecast</label></div><div class=\"col-xs-6\">" + amountLeft + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\">" + table + "</div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "</div>"
+                    + "<br><br>";
+
+                return Html;
+            }
+            catch (e) {
+                console.log('Exception in WFMAIN2.master.getSpendForecastHtmlForPrint(): ' + e.message + ', ' + e.stack);
+
+            }
+        }
+
+
+
+        function getPaybackHtmlForPrint() {
+            try {
+                console.log('In WFMain2.master.getPaybackHtmlForPrint().');
+
+                var npv = $('#npvSummary').text();
+                var irr = $('#irr').text();
+
+                ///////////////////////////////////
+                /// Calculate the PAYBACK ITEMS ///
+                ///////////////////////////////////
+                var table = "<table class=\"table table-bordered\">";
+                table += "<thead><tr>"
+                    + "<th scope=\"col\">Payback Type</th>"
+                    + "<th scope=\"col\">Savings $ Per Year</th>"
+                    + "<th scope=\"col\">Comments</th>"
+                    + "</tr></thead>";
+
+                ///PAYBACK
+                var payback = $('#jsGridPaybackItems').dxDataGrid('instance');
+                var pRows = payback.getVisibleRows();
+
+                table += "<tbody>";
+                for (var pRow = 0; pRow < pRows.length; pRow++) {
+                    var tempRow = "<tr>"
+                        + "<th scope=\"row\">" + payback.cellValue(pRow, "Payback Type") + "</th>"
+                        + "<td>" + payback.cellValue(pRow, "Savings $ Per Year") + "</td>"
+                        + "<td>" + payback.cellValue(pRow, "Comments") + "</td>"
+                        + "</tr>";
+                    //Add row to table
+                    table += tempRow;
+                }
+
+                table += "</tbody>";
+                table += "</table>";
+
+
+                ///////////////////////////////////
+                /// Calculate the ONGOING COSTS ///
+                ///////////////////////////////////
+                var table2 = "<table class=\"table table-bordered\">";
+                table2 += "<thead><tr>"
+                    + "<th scope=\"col\">Ongoing Cost Type</th>"
+                    + "<th scope=\"col\">Ongoing $ Per Year</th>"
+                    + "<th scope=\"col\">Comments</th>"
+                    + "</tr></thead>";
+
+                var ongoing = $('#jsGridOngoingCosts').dxDataGrid('instance');
+                var oRows = ongoing.getVisibleRows();
+
+                table2 += "<tbody>";
+                for (var oRow = 0; oRow < oRows.length; oRow++) {
+                    var tempRow2 = "<tr>"
+                        + "<th scope=\"row\">" + ongoing.cellValue(oRow, "Ongoing Cost Type") + "</th>"
+                        + "<td>" + ongoing.cellValue(oRow, "Ongoing $ Per Year") + "</td>"
+                        + "<td>" + ongoing.cellValue(oRow, "Comments") + "</td>"
+                        + "</tr>";
+                    //Add row to table
+                    table2 += tempRow2;
+                }
+
+                table2 += "</tbody>";
+                table2 += "</table>";
+
+
+                ///Create html for the PAYBACK
+                var Html = "<div id=\"cmPayback\" class=\"container\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">PAYBACK PARAMETERS</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>NPV Summary (if applicable)</label></div><div class=\"col-xs-6\">" + npv + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-6\"><label>IRR</label></div><div class=\"col-xs-6\">" + irr + "</label></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">PAYBACK ITEMS</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\">" + table + "</div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">ONGOING COSTS</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\">" + table2 + "</div></div>"
+                    + "</div>"
+                    + "<br><br>";
+
+                return Html;
+
+            }
+            catch (e) {
+                console.log('Exception in WFMAIN2.master.getPaybackHtmlForPrint(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+
+        function getWorkflowHtmlForPrint() {
+            try {
+                console.log('In WFMain2.master.getWorkflowHtmlForPrint().');
+
+                /////////////////////////////////////
+                /// Calculate the ASSIGNMENT LIST ///
+                /////////////////////////////////////
+                var table = "<table class=\"table table-bordered\">";
+                table += "<thead><tr>"
+                    + "<th scope=\"col\">Assigned Date</th>"
+                    + "<th scope=\"col\">Status</th>"
+                    + "<th scope=\"col\">Assigned To</th>"
+                    + "<th scope=\"col\">Action</th>"
+                    + "<th scope=\"col\">Role</th>"
+                    + "<th scope=\"col\">Completed Date</th>"
+                    + "</tr></thead>";
+
+                ///WORKFLOW
+                var workflow = $('#jsGridAssignmentList').dxDataGrid('instance');
+                var wRows = workflow.getVisibleRows();
+
+                table += "<tbody>";
+                for (var wRow = 0; wRow < wRows.length; wRow++) {
+                    var tempRow = "<tr>"
+                        + "<th scope=\"row\">" + new Date(workflow.cellValue(wRow, "Assigned Date")).toLocaleDateString() + "</th>"
+                        + "<td>" + workflow.cellValue(wRow, "Status") + "</td>"
+                        + "<td>" + workflow.cellValue(wRow, "Assigned To") + "</td>"
+                        + "<td>" + workflow.cellValue(wRow, "Action") + "</td>"
+                        + "<td>" + workflow.cellValue(wRow, "Role") + "</td>"
+                        + "<td>" + new Date(workflow.cellValue(wRow, "Completed Date")).toLocaleDateString() + "</td>"
+                        + "</tr>";
+                    //Add row to table
+                    table += tempRow;
+                }
+
+                table += "</tbody>";
+                table += "</table>";
+
+
+                ///Create html for the WORFLOW
+                var Html = "<div id=\"cmWorkflow\" class=\"container\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">ASSIGNMENT LIST</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\">" + table + "</div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "</div>"
+                    + "<br><br>";
+
+                return Html;
+
+            }
+            catch (e) {
+                console.log('Exception in WFMAIN2.master.getWorkflowHtmlForPrint(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+
+        function getCommentsHtmlForPrint(param1, param2) {
+            try {
+                console.log('In WFMain2.master.getCommentsForPrint().');
+
+                var cRows = param1;
+                var type = param2;
+
+                //////////////////////////////
+                /// Calculate the COMMENTS ///
+                //////////////////////////////
+                var table = "<table class=\"table table-bordered\">";
+                table += "<thead><tr>"
+                    + "<th scope=\"col\">User</th>"
+                    + "<th scope=\"col\">Date</th>"
+                    + "<th scope=\"col\">Role</th>"
+                    + "<th scope=\"col\">Coments</th>"
+                    + "</tr></thead>";
+
+                table += "<tbody>";
+                for (var cRow = 0; cRow < cRows.length; cRow++) {
+                    var tempRow = "<tr>"
+                        + "<th scope=\"row\">" + cRows[cRow].UserName + "</th>"
+                        + "<td>" + new Date(cRows[cRow].Timestmp).toLocaleDateString() + "</td>"
+                        + "<td>" + cRows[cRow].RoleName + "</td>"
+                        + "<td>" + cRows[cRow].Comments + "</td>"
+                        + "</tr>";
+                    //Add row to table
+                    table += tempRow;
+                }
+
+                table += "</tbody>";
+                table += "</table>";
+
+
+                ///Create html for the COMMENTS
+                var Html = "<div id=\"cmComments" + type + "\" class=\"container\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">" + type + " COMMENTS</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\">" + table + "</div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "</div>"
+                    + "<br><br>";
+
+                return Html;
+            }
+            catch (e) {
+                console.log('Exception in WFMAIN2.master.getCommentsHtmlForPrint(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+
+        function getAttachmentsHtmlForPrint(param) {
+            try {
+                console.log('In WFMain2.master.getAttachmentsHtmlForPrint().');
+                var aRows = param;
+
+                /////////////////////////////////
+                /// Calculate the ATTACHMENTS ///
+                /////////////////////////////////
+                var table = "<table class=\"table table-bordered\">";
+                table += "<thead><tr>"
+                    + "<th scope=\"col\">File Name</th>"
+                    + "<th scope=\"col\">Date Modified</th>"
+                    + "</tr></thead>";
+
+
+                table += "<tbody>";
+                for (var aRow = 0; aRow < aRows.length; aRow++) {
+                    var tempRow = "<tr>"
+                        + "<th scope=\"row\">" + aRows[aRow].FileName + "</th>"
+                        + "<td>" + new Date(aRows[aRow].CreateTime).toLocaleDateString(); + "</td>"
+                            + "</tr>";
+                    //Add row to table
+                    table += tempRow;
+                }
+
+                table += "</tbody>";
+                table += "</table>";
+
+
+                ///Create html for the ATTACHMENTS
+                var Html = "<div id=\"cmAttachments\" class=\"container\">"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><span class=\"custom-header randy\">ATTACHMENTS</span></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><hr></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\">" + table + "</div></div>"
+                    + "<div class=\"row\"><div class=\"col-xs-12\"><br></div></div>"
+                    + "</div>"
+                    + "<br><br>";
+
+                return Html;
+            }
+            catch (e) {
+                console.log('Exception in WFMAIN2.master.getAttachmentsHtmlForPrint(): ' + e.message + ', ' + e.stack);
+            }
+        }
+
+        function printCarForm(s, e) {
+            try {
+                console.log('In WFMain2.master.printCarForm().');
+
+                // This formulates the operationUri, which is used throughout.
+                var url1 = window.location.href.split('https://')[1];
+                var url2 = url1.split('/')[0];
+                var operationUriPrefix = 'https://' + url2 + '/';
+
+                var html2 = '<!DOCTYPE html>';
+                html2 += '<html class="dxEdge dxWindowsPlatform dxBrowserVersion-17" style="margin: 0px; padding: 0px; height: 100%; overflow: hidden; overflow-x: hidden;zoom:45%;" xmlns="http://www.w3.org/1999/xhtml">';
+                html2 += '<head>';
+                html2 += '<link href="/DXR.axd?r=0_1637,1_69,1_70,1_71,0_1642,1_251,0_1528,1_250,0_1533,0_1604,6_0,0_1609,0_1538,0_1543,0_1495,0_1500-rsSDh" rel="stylesheet" type="text/css">';
+                html2 += '<link rel="stylesheet" type="text/css" href="Content/Quill/quill.snow.css" />';
+                html2 += '<link rel="stylesheet" type="text/css" href="Content/Quill/quill.bubble.css"/>';
+                html2 += '<link rel="stylesheet" type="text/css" href="Content/Styles/dx.common.css" />';
+                html2 += '<link rel="stylesheet" type="text/css" href="Content/Styles/dx.light.css" />';
+                html2 += '<link rel="stylesheet" type="text/css" href="Content/Styles/Custom.css" />';
+                html2 += '<link rel="stylesheet" type="text/css" href="Content/bootstrap.min.css" />';
+                html2 += '</head>';
+                html2 += '<body onload="window.focus(); window.print(); window.close()">';
+                html2 += '<div style="overflow-y:auto;">'; // This gets our print window scrolling.
+
+                $.ajax({
+                    url: operationUriPrefix + "odata/vComments?$filter=CARId eq " + gCarId + " and RoleCategory eq 'Approver'&$orderby=Timestmp",
+                    dataType: "json"
+                }).done(function (result) {
+                    var approverComments = result.value;
+                    console.log('Found ' + approverComments.length + ' approver comments.');
+
+                    $.ajax({
+                        url: operationUriPrefix + "odata/vComments?$filter=CARId eq " + gCarId + " and RoleCategory eq 'Collaborator'&$orderby=Timestmp",
+                        dataType: "json"
+                    }).done(function (result) {
+                        var collabComments = result.value;
+                        console.log('Found ' + collabComments.length + ' collaborator comments.');
+
+                        $.ajax({
+                            url: operationUriPrefix + "odata/vAttachments?$filter=CARId eq " + gCarId + "&$orderby=CreateTime",
+                            dataType: "json"
+                        }).done(function (result) {
+                            var attachments = result.value;
+                            console.log('Found ' + attachments.length + ' attachments.');
+
+                            //Print BASIC INFO tab
+                            var Html2e = getBasicDataHtmlForPrint();
+                            html2 += Html2e;
+
+                            //Print DESCRIPTION tab
+                            var Html2d = getDescriptionHtmlForPrint();
+                            html2 += Html2d;
+
+                            //Print COST SHEET tab
+                            var Html2x = getCostSheetHtmlForPrint();
+                            html2 += Html2x;
+
+                            //Print SPEND FORECAST tab
+                            var Html2s = getSpendForecastHtmlForPrint();
+                            html2 += Html2s;
+
+                            //Print PAYBACK tab
+                            var Html2y = getPaybackHtmlForPrint();
+                            html2 += Html2y;
+
+                            //Print COMMENTS tab
+                            var Html2ac = getCommentsHtmlForPrint(approverComments, "APPROVER");
+                            html2 += Html2ac;
+                            var Html2cc = getCommentsHtmlForPrint(collabComments, "COLLABORATOR");
+                            html2 += Html2cc;
+
+                            //Print ATTACHMENTS tab
+                            var Html2as = getAttachmentsHtmlForPrint(attachments);
+                            html2 += Html2as;
+
+                            //Print WORKFLOW tab
+                            var Html2w = getWorkflowHtmlForPrint();
+                            html2 += Html2w;
+
+
+                            /****************************************************************
+                            ****************************************************************/
+
+                            //This gets the Browser and Version
+                            //navigator.sayswho = (function () {
+                            //    var ua = navigator.userAgent, tem,
+                            //        M = ua.match(/(opera|chrome|safari|firefox|msie|trident(?=\/))\/?\s*(\d+)/i) || [];
+                            //    if (/trident/i.test(M[1])) {
+                            //        tem = /\brv[ :]+(\d+)/g.exec(ua) || [];
+                            //        return 'IE ' + (tem[1] || '');
+                            //    }
+                            //    if (M[1] === 'Chrome') {
+                            //        tem = ua.match(/\b(OPR|Edge)\/(\d+)/);
+                            //        if (tem != null) return tem.slice(1).join(' ').replace('OPR', 'Opera');
+                            //    }
+                            //    M = M[2] ? [M[1], M[2]] : [navigator.appName, navigator.appVersion, '-?'];
+                            //    if ((tem = ua.match(/version\/(\d+)/i)) != null) M.splice(1, 1, tem[1]);
+                            //    return M.join(' ');
+                            //})();
+                            //console.log(navigator.sayswho); // outputs: `Chrome 62`
+
+
+                            //Print the window
+                            var printWindow = window.open();
+                            printWindow.document.write(html2);
+                            printWindow.document.close();
+
+                            //Print the window (old)
+                            //var printWindow = window.open();
+                            //printWindow.document.write(html2);
+                            //printWindow.print();
+                            //if (confirm("Close the window when done printing..."))
+                            //    printWindow.close();
+                            //else
+                            //    printWindow.close();
+
+                        });
+                    });
+                });
+            }
+            catch (e) {
+                alert('Exception in WFMain2.master.printCarForm(): ' + e.message + ', ' + e.stack);
+            }
+        }
+        // Print End
+
+
+
+        // POWERPOINT
+        // Smithfield Colors
+        var smithfieldDarkGray = "333F50";
+        var smithfieldLightGray = "AFABAB";
+        var smithfieldDarkOrange = "C55A11";
+        var smithfieldLightOrange = "E0722D";
+        var reportModel;
+        var slide;
+        var pptx;
+
+        // Fonts
+        var smithfieldfFontFace = "Calibri";
+
+        var titleTextStyle = {
+            fontSize: 28,
+            color: smithfieldDarkGray,
+            fontFace: smithfieldfFontFace,
+            bold: true,
+            italics: false
+        };
+
+        var bodyTextStyle = {
+            fontSize: 12,
+            color: smithfieldDarkGray,
+            fontFace: smithfieldfFontFace,
+            bold: false,
+            itlaics: false
+        };
+
+        var boldBodyTextStyle = {
+            fontSize: 12,
+            color: smithfieldDarkGray,
+            fontFace: smithfieldfFontFace,
+            bold: true,
+            itlaics: false
+        };
+
+        var smallBodyTextStyle = {
+            fontSize: 10,
+            color: smithfieldDarkGray,
+            fontFace: smithfieldfFontFace,
+            bold: false,
+            itlaics: false
+        };
+
+        var headline1Style = {
+            fontSize: 12,
+            color: smithfieldDarkGray,
+            fontFace: smithfieldfFontFace,
+            bold: true,
+            italics: false
+        };
+
+        var labelTextStyle = {
+            fontSize: 12,
+            color: smithfieldDarkOrange,
+            fontFace: smithfieldfFontFace,
+            bold: true,
+            italics: false
+        };
+
+        var smallBoldBodyTextStyle = {
+            fontSize: 10,
+            color: smithfieldDarkGray,
+            fontFace: smithfieldfFontFace.bold,
+            bold: true,
+            italics: false
+        };
+
+        var extraSmallBoldBodyTextStyle = {
+            fontSize: 8,
+            color: smithfieldDarkGray,
+            fontFace: smithfieldfFontFace.bold,
+            bold: true,
+            italics: false
+        };
+
+        var fieldTextStyle = {
+            fontSize: 12,
+            color: smithfieldDarkGray,
+            fontFace: smithfieldfFontFace.bold,
+            bold: true,
+            italics: false
+        };
+
+        var tableTextStyle = {
+            fontSize: 12,
+            color: smithfieldDarkGray,
+            fontFace: smithfieldfFontFace,
+            bold: true,
+            italics: false
+        };
+
+        var grayLine = {
+            fontSize: 36,
+            color: smithfieldLightGray,
+            fontFace: 'Calibri'
+        };
+
+        var largeLabelTextStyle = {
+            fontSize: 14,
+            color: smithfieldDarkOrange,
+            fontFace: smithfieldfFontFace,
+            bold: true,
+            italics: false
+        }
+
+        function opts(x, y, h, w, style) {
+            var options = {};
+            options.valign = "top";
+            options.x = x;
+            options.y = y;
+            options.h = h;
+            options.w = w;
+            options.fontSize = style.fontSize;
+            options.color = style.color;
+            options.fontFace = style.fontFace;
+            options.bold = style.bold;
+            options.italics = style.italics;
+
+            return options;
+        }
+
+        function createReport(myReportModel) {
+            try {
+
+                reportModel = myReportModel;
+                pptx = new PptxGenJS();
+                pptx.pptLayout = pptx.setLayout({ name: 'Widescreen', width: 13.0, height: 7.5 });
+                pptx.defineSlideMaster({
+                    title: "MASTER_SLIDE",
+                    bkgd: { path: 'full-background.png' }
+                });
+
+                slide = pptx.addNewSlide("MASTER_SLIDE");
+                addProjectTitle(slide);
+                addFirstTextLine(slide);
+                addDividerLines(slide);
+                addSecondTextLine(slide);
+                addProjectHeaders(slide);
+                addProjectData(slide);
+                addApprovalsBox(slide);
+                addProjectFinancials(slide);
+                addLogo(slide);
+                addIcon(slide);
+                if (reportModel.SimplePaybackFlag) {
+                    addSimplePayback(slide);
+                }
+                pptx.save(reportModel.ProjectTitle);
+            } catch (e) {
+                console.log('Exception in CarForm3.aspx.createReport(): ' + e.message + ', ' + e.stack);
+                alert('Exception in CarForm3.aspx.createReport()');
+            }
+        }
+
+        function addProjectTitle(slide) {
+            slide.addText(reportModel.ProjectTitle, opts(.41, .21, 0.2, 10.75, titleTextStyle));
+        }
+
+        function addFirstTextLine(slide) {
+            slide.addText("Project ID:", opts(.2, .65, .27, 2.0, labelTextStyle));
+            slide.addText(reportModel.ProjectId, opts(1.03, .65, .27, 1.6, headline1Style));
+
+            slide.addText("Segment:", opts(2.45, .65, .27, 2.0, labelTextStyle));
+            slide.addText(reportModel.Segment, opts(3.19, .65, .27, 2.0, headline1Style));
+
+            slide.addText("Location:", opts(5.02, .65, .27, .84, labelTextStyle));
+            slide.addText(reportModel.Location, opts(5.73, .65, .27, 1.6, headline1Style));
+
+            slide.addText("Project Type:", opts(6.9, .65, .27, 2.0, labelTextStyle));
+            slide.addText(reportModel.ProjectType, opts(7.9, .65, .25, 2.0, headline1Style));
+
+            slide.addText("Project Pillar:", opts(9.97, .65, .27, 2.0, labelTextStyle));
+            slide.addText(reportModel.ProjectSubType, opts(11.07, .65, .25, 2.0, headline1Style));
+        }
+
+        function addSecondTextLine(slide) {
+
+            var y = 1.00;
+            var height = 0.3;
+
+            slide.addText("Projected Start Date:", opts(.2, y, height, 2.6, labelTextStyle));
+            slide.addText(reportModel.ProjectedStartDate, opts(1.8, y + .04, height, 1.5, smallBoldBodyTextStyle));
+
+            slide.addText("Est. Completion Date:", opts(2.85, y, height, 2.6, labelTextStyle));
+            slide.addText(reportModel.EstimatedCompletionDate, opts(4.5, y + .04, height, 1.5, smallBoldBodyTextStyle));
+        }
+
+        function addDividerLines(slide) {
+            // Horizontal
+            slide.addShape(pptx.shapes.LINE, { x: .2, y: .95, w: 12.55, h: 0, line: smithfieldDarkGray, lineSize: 1 });
+            // Vertical
+            slide.addShape(pptx.shapes.LINE, { x: 1.95, y: 1.38, w: 0, h: 5.84, line: smithfieldDarkGray, lineSize: 1 });
+        }
+
+        function addIcon(slide) {
+
+            var iconX = .19;
+            var iconY = 1.45;
+            var iconWidth = 1.66;
+            var iconHeight = iconWidth;
+            var icon;
+
+            switch (reportModel.ParentPillarId) {
+                case "CI": icon = "Content/Images/continuous-improvement.png"; break;
+                case "NPC": icon = "Content/Images/new-plant-capacity.png"; break;
+                case "OG": icon = "Content/Images/organic-growth.png"; break;
+                case "REG": icon = "Content/Images/regulatory.png"; break;
+                case "REPL": icon = "Content/Images/replacement.png"; break;
+                case "SP": icon = "Content/Images/strategy-pivot.png"; break;
+                case "SUS": icon = "Content/Images/sustainability"; break;
+                default: icon = "";
+            }
+            slide.addImage({ path: icon, x: iconX, y: iconY, w: iconWidth, h: iconHeight });
+        }
+
+        function addProjectHeaders(slide) {
+
+            var height = .3;
+            var width = 3.3;
+            var x = 2.15;
+            var style = largeLabelTextStyle;
+
+            slide.addText("Project Statement", opts(x, 1.40, height, width, style));
+            slide.addText("Project Rationale", opts(x, 3.5, height, width, style));
+            slide.addText("Project Approvals", opts(8.43, 1.21, height, width, style));
+            slide.addText("Project Financials", opts(8.43, 5.51, height, width, style));
+        }
+
+        function addProjectFinancials(slide) {
+
+            var height = .3;
+            var width = 2.62;
+            var style1 = bodyTextStyle;
+            var style2 = boldBodyTextStyle;
+
+            slide.addText("CAPITAL", opts(8.43, 5.84, height, width, style1));
+            slide.addText("$" + PFGcommaSeparateNumber(reportModel.capitalFinancial), opts(9.9, 5.84, height, width, style1));
+
+            slide.addText("EXPENSE", opts(8.43, 6.07, height, width, style1));
+            slide.addText("$" + PFGcommaSeparateNumber(reportModel.expenseFinancial), opts(9.9, 6.07, height, width, style1));
+
+            slide.addText("LEASE", opts(8.43, 6.30, height, width, style1));
+            slide.addText("$" + PFGcommaSeparateNumber(reportModel.leaseFinancial), opts(9.9, 6.30, height, width, style1));
+
+            slide.addShape(pptx.shapes.LINE, { x: 8.43, y: 6.61, w: 3.84, h: 0, line: smithfieldDarkGray, lineSize: 1 });
+            slide.addText("PROJECT TOTAL", opts(8.43, 6.68, height, width, style2));
+            slide.addText("$" + PFGcommaSeparateNumber(reportModel.totalFinancial), opts(9.9, 6.68, height, width, style2));
+
+            slide.addText("AVG. PAYBACK TOTAL (months)", opts(8.43, 7.0, height, width, style2));
+            slide.addText(reportModel.monthsFinancial, opts(10.9, 7.0, height, width, style2));
+
+        }
+
+        // 2019-09-16 - Remove this code LATER - we need to format everything the same way. - use Randys then use overarching method like  toCurrency(val)
+        // #PFG - Pat put here out of necessity
+        function PFGcommaSeparateNumber(val) {
+            while (/(\d+)(\d{3})/.test(val.toString())) {
+                val = val.toString().replace(/(\d+)(\d{3})/, '$1' + ',' + '$2');
+            }
+            return val;
+        }
+
+
+        function addProjectData(slide) {
+
+            var height = 3.5;
+            var width = 6.0;
+            var x = 2.15;
+            var style = smallBodyTextStyle;
+
+            slide.addText(reportModel.ProjectStatement, opts(x, 1.73, 1.77, width, style));
+            slide.addText(reportModel.ProjectReason + '\n\n' + reportModel.ProjectJustification, opts(x, 3.8, 1.55, width, style));
+        }
+
+        function addApprovalsBox(slide) {
+            var i = 0;
+            var x = 8.64;
+            var deltaX = 4.0;
+            var deltaY = 0.38;
+            var approvals = reportModel.approvals;
+
+            slide.addShape(pptx.shapes.RECTANGLE, { x: 8.44, y: 1.59, w: 4.31, h: 3.86, line: '000000' });
+            slide.addText("Reviewer", opts(8.73, 1.65, .3, 1.56, labelTextStyle));
+            slide.addText("Approval Date", opts(11.19, 1.65, .3, 1.56, labelTextStyle));
+
+            $.each(approvals, function (index, approval) {
+
+                var completion;
+                if (approval.CompletionDate != null) {
+                    completion = approval.CompletionDate.split('T')[0];
+                }
+                else {
+                    completion = approval.CurStatus;
+                }
+
+                slide.addText(approval.UserName, opts(8.73, 1.97 + i * deltaY, .27, 2.36, smallBoldBodyTextStyle));
+                slide.addText(approval.RoleName, opts(8.73, 2.17 + i * deltaY, .18, 2.36, extraSmallBoldBodyTextStyle));
+                slide.addText(completion, opts(11.28, 1.97 + i * deltaY, .23, 1.07, smallBoldBodyTextStyle));
+                i++;
+            });
+        }
+
+        function addSimplePayback(slide) {
+            var paybacks = reportModel.paybacks.value;
+            var x = 2.15;
+            var deltaX = 4.0;
+            var deltaY = 0.2;
+            var height = .3;
+            var width = 3.3;
+            var i = 0;
+            var total = 0;
+
+            // Headers
+            slide.addText("Simple Payback", opts(x, 5.2, height, width, largeLabelTextStyle));
+            slide.addText("Total Payback", opts(4.16, 6.9, height, width, largeLabelTextStyle));
+
+            $.each(paybacks, function (index, value) {
+                slide.addText(value.Name, opts(x, 5.5 + i * deltaY, height, width, bodyTextStyle));
+                slide.addText("$" + PFGcommaSeparateNumber(value.Amount), opts(x + deltaX, 5.5 + i * deltaY, height, width, bodyTextStyle));
+                total += value.Amount;
+                i++;
+            });
+
+            slide.addText("$" + PFGcommaSeparateNumber(total), opts(x + deltaX, 6.9, height, width, boldBodyTextStyle));
+        }
+
+        function addLogo(slide) {
+            slide.addImage({ path: "logo.png", x: 11.76, y: .18, w: .75, h: .31 });
+        }
+
+        function powerPoint() {
+            var carId = getUrlParameter('c');
+            var reportModel;
+            var approvals;
+            var dashboard;
+            var dashboardUrl;
+            var approvalsUrl;
+            var paybacks;
+            var paybacksUrl;
+
+            $.ajax({
+                type: "GET",
+                url: "api/vPowerPoints/",
+                contentType: "application/json; charset=utf-8",
+                data: { id: carId },
+                dataType: "json"
+            }).done(function (result) {
+                reportModel = result;
+                dashboardUrl = "odata/vDashboards(" + carId + ")";
+                $.ajax({
+                    url: dashboardUrl,
+                    dataType: "json"
+                }).done(function(result) {
+                    dashboard = result;
+                    reportModel.capitalFinancial = dashboard.Capital;
+                    reportModel.expenseFinancial = dashboard.Expense;
+                    reportModel.leaseFinancial = dashboard.Lease;
+                    reportModel.totalFinancial = dashboard.CostTotal;
+                    reportModel.monthsFinancial = dashboard.PaybackMonths;
+                    //approvalsUrl = "odata/vAssignments?$filter=CARId eq " + carId + " and UserId ne null and (StepName eq 'VPLevel' or StepName eq 'ExecLevel' or StepName eq 'CLevel')&$orderby=CompletionDate desc";
+                    //console.log('In CARForm3.aspx.powerPoint(). approvalsUrl: ' + approvalsUrl);
+                    // This formulates the operationUri, which is used throughout.
+                    var url1 = window.location.href.split('https://')[1];
+                    var url2 = url1.split('/')[0];
+                    var operationUriPrefix = 'https://' + url2 + '/';
+
+                    $.ajax({
+                        url: operationUriPrefix +
+                            "odata/vAssignments?$filter=CARId eq " +
+                            carId +
+                            "&$orderby=CompletionDate desc",
+                        dataType: "json"
+                    }).done(function(result) {
+                        console.log('In CARForm3.aspx.powerPoint().vAssignments. result: ' + JSON.stringify(result));
+                        var assignments = result.value;
+                        var approvals = [];
+                        for (var i = 0; i < assignments.length; i++) {
+                            if (assignments[i].StepName.indexOf('VPLevel') > -1 ||
+                                assignments[i].StepName.indexOf('ExecLevel') > -1 ||
+                                assignments[i].StepName.indexOf('CLevel') > -1) {
+                                approvals.push(assignments[i]);
+                            }
+                        }
+
+                        reportModel.approvals = approvals;
+
+                        if (reportModel.SimplePaybackFlag) {
+                            var paybacksUrl = "odata/vPaybacks?$filter=CARId eq " + reportModel.CARId;
+                            $.ajax({
+                                url: paybacksUrl,
+                                dataType: "json"
+                            }).done(function(result) {
+                                reportModel.paybacks = result;
+                                createReport(reportModel);
+                            })
+                        } else {
+                            reportModel.paybacks = [];
+                            createReport(reportModel);
+                        }
+                    });
+                });
+            });
+        }
+
+
+        //  --- PowerPoint End -----
+
+
+        //// POWERPOINT
+        //// Smithfield Colors
+        //var smithfieldDarkGray = "333F50";
+        //var smithfieldLightGray = "AFABAB";
+        //var smithfieldDarkOrange = "C55A11";
+        //var smithfieldLightOrange = "E0722D";
+        //var reportModel;
+        //var slide;
+        //var pptx;
+
+        //// Fonts
+        //var smithfieldfFontFace = "Calibri";
+
+        //var titleTextStyle = {
+        //    fontSize: 28,
+        //    color: smithfieldDarkGray,
+        //    fontFace: smithfieldfFontFace,
+        //    bold: true,
+        //    italics: false
+        //};
+
+        //var bodyTextStyle = {
+        //    fontSize: 12,
+        //    color: smithfieldDarkGray,
+        //    fontFace: smithfieldfFontFace,
+        //    bold: false,
+        //    itlaics: false
+        //};
+
+        //var boldBodyTextStyle = {
+        //    fontSize: 12,
+        //    color: smithfieldDarkGray,
+        //    fontFace: smithfieldfFontFace,
+        //    bold: true,
+        //    itlaics: false
+        //};
+
+        //var smallBodyTextStyle = {
+        //    fontSize: 10,
+        //    color: smithfieldDarkGray,
+        //    fontFace: smithfieldfFontFace,
+        //    bold: false,
+        //    itlaics: false
+        //};
+
+        //var headline1Style = {
+        //    fontSize: 12,
+        //    color: smithfieldDarkGray,
+        //    fontFace: smithfieldfFontFace,
+        //    bold: true,
+        //    italics: false
+        //};
+
+        //var labelTextStyle = {
+        //    fontSize: 12,
+        //    color: smithfieldDarkOrange,
+        //    fontFace: smithfieldfFontFace,
+        //    bold: true,
+        //    italics: false
+        //};
+
+        //var smallBoldBodyTextStyle = {
+        //    fontSize: 10,
+        //    color: smithfieldDarkGray,
+        //    fontFace: smithfieldfFontFace.bold,
+        //    bold: true,
+        //    italics: false
+        //};
+
+        //var extraSmallBoldBodyTextStyle = {
+        //    fontSize: 8,
+        //    color: smithfieldDarkGray,
+        //    fontFace: smithfieldfFontFace.bold,
+        //    bold: true,
+        //    italics: false
+        //};
+
+        //var fieldTextStyle = {
+        //    fontSize: 12,
+        //    color: smithfieldDarkGray,
+        //    fontFace: smithfieldfFontFace.bold,
+        //    bold: true,
+        //    italics: false
+        //};
+
+        //var tableTextStyle = {
+        //    fontSize: 12,
+        //    color: smithfieldDarkGray,
+        //    fontFace: smithfieldfFontFace,
+        //    bold: true,
+        //    italics: false
+        //};
+
+        //var grayLine = {
+        //    fontSize: 36,
+        //    color: smithfieldLightGray,
+        //    fontFace: 'Calibri'
+        //};
+
+        //var largeLabelTextStyle = {
+        //    fontSize: 14,
+        //    color: smithfieldDarkOrange,
+        //    fontFace: smithfieldfFontFace,
+        //    bold: true,
+        //    italics: false
+        //}
+
+
+        //function powerPoint() {
+        //    var carId = getUrlParameter('c');
+        //    var reportModel;
+        //    var approvals;
+        //    var dashboard;
+        //    var dashboardUrl;
+        //    var approvalsUrl;
+        //    var paybacks;
+        //    var paybacksUrl;
+
+        //    $.ajax({
+        //        type: "GET",
+        //        url: "api/vPowerPoints/",
+        //        contentType: "application/json; charset=utf-8",
+        //        data: { id: carId },
+        //        dataType: "json"
+        //    }).done(function (result) {
+        //        reportModel = result;
+        //        dashboardUrl = "odata/vDashboards(" + reportModel.CARId + ")";
+        //        $.ajax({
+        //            url: dashboardUrl,
+        //            dataType: "json"
+        //        }).done(function (result) {
+        //            dashboard = result;
+        //            reportModel.capitalFinancial = dashboard.Capital;
+        //            reportModel.expenseFinancial = dashboard.Expense;
+        //            reportModel.leaseFinancial = dashboard.Lease;
+        //            reportModel.totalFinancial = dashboard.CostTotal;
+        //            reportModel.monthsFinancial = dashboard.PaybackMonths;
+
+        //            // This formulates the operationUri, which is used throughout.
+        //            var url1 = window.location.href.split('https://')[1];
+        //            var url2 = url1.split('/')[0];
+        //            var operationUriPrefix = 'https://' + url2 + '/';
+
+        //            //approvalsUrl = "odata/vAssignments?$filter=CARId eq " + reportModel.CARId + "  and UserId ne null  and UserId ne null and (StepName eq  'VPLevel'  or StepName eq  'ExecLevel'  or StepName eq  'CLevel' )    &$orderby=CompletionDate desc";
+        //            $.ajax({
+        //                url: operationUriPrefix + "odata/vAssignments?$filter=CARId eq " + carId + "&$orderby=CompletionDate desc",  //approvalsUrl,
+        //                dataType: "json"
+        //            }).done(function (result) {
+
+
+
+        //                console.log('In CARForm3.aspx.powerPoint().vAssignments. result: ' + JSON.stringify(result));
+        //                var assignments = result.value;
+        //                var approvals = [];
+        //                for (var i = 0; i < assignments.length; i++) {
+        //                    if (assignments[i].StepName.indexOf('VPLevel') > -1 || assignments[i].StepName.indexOf('ExecLevel') > -1 || assignments[i].StepName.indexOf('CLevel') > -1) {
+        //                        approvals.push(assignments[i]);
+        //                    }
+        //                }
+
+
+        //                reportModel.approvals = approvals;
+
+
+
+        //                //reportModel.approvals = result.value;
+
+        //                if (reportModel.SimplePaybackFlag) {
+        //                    var paybacksUrl = "odata/vPaybacks?$filter=CARId eq " + reportModel.CARId;
+        //                    $.ajax({
+        //                        url: paybacksUrl,
+        //                        dataType: "json"
+        //                    }).done(function (result) {
+        //                        reportModel.paybacks = result;
+        //                        createReport(reportModel);
+        //                    })
+        //                }
+        //                else {
+        //                    reportModel.paybacks = [];
+        //                    createReport(reportModel);
+        //                }
+        //            });
+        //        })
+        //    });
+        //}
+
+        //function createReport(myReportModel) {
+        //    try {
+
+        //        reportModel = myReportModel;
+        //        pptx = new PptxGenJS();
+        //        pptx.pptLayout = pptx.setLayout({ name: 'Widescreen', width: 13.0, height: 7.5 });
+        //        pptx.defineSlideMaster({
+        //            title: "MASTER_SLIDE",
+        //            bkgd: { path: 'full-background.png' }
+        //        });
+
+        //        slide = pptx.addNewSlide("MASTER_SLIDE");
+        //        addProjectTitle(slide);
+        //        addFirstTextLine(slide);
+        //        addDividerLines(slide);
+        //        addSecondTextLine(slide);
+        //        addProjectHeaders(slide);
+        //        addProjectData(slide);
+        //        addApprovalsBox(slide);
+        //        addProjectFinancials(slide)
+        //        addLogo(slide);
+        //        addIcon(slide);
+        //        if (reportModel.SimplePaybackFlag) {
+        //            addSimplePayback(slide)
+        //        }
+        //        pptx.save(reportModel.ProjectTitle);
+        //    } catch (e) {
+        //        console.log('Exception in CarForm3.aspx.createReport(): ' + e.message + ', ' + e.stack);
+        //        alert('Exception in CarForm3.aspx.createReport()');
+        //    }
+        //}
+
+        //function addProjectTitle(slide) {
+        //    slide.addText(reportModel.ProjectTitle, opts(.41, .21, 0.2, 9.0, titleTextStyle));
+        //}
+
+        //function addFirstTextLine(slide) {
+        //    slide.addText("Project ID:", opts(.2, .65, .27, 2.0, labelTextStyle));
+        //    slide.addText(reportModel.ProjectId, opts(1.03, .65, .27, 1.6, headline1Style));
+
+        //    slide.addText("Segment:", opts(2.45, .65, .27, 2.0, labelTextStyle));
+        //    slide.addText(reportModel.Segment, opts(3.19, .65, .27, 2.0, headline1Style));
+
+        //    slide.addText("Location:", opts(5.02, .65, .27, .84, labelTextStyle));
+        //    slide.addText(reportModel.Location, opts(5.73, .65, .27, 1.6, headline1Style));
+
+        //    slide.addText("Project Type:", opts(6.9, .65, .27, 2.0, labelTextStyle));
+        //    slide.addText(reportModel.ProjectType, opts(7.9, .65, .25, 2.0, smallBoldBodyTextStyle));
+
+        //    slide.addText("Project Pillar:", opts(9.97, .65, .27, 2.0, labelTextStyle));
+        //    slide.addText(reportModel.ProjectSubType, opts(11.07, .65, .25, 2.0, smallBoldBodyTextStyle));
+        //}
+
+        //function addSecondTextLine(slide) {
+
+        //    var y = 1.00;
+        //    var height = 0.3;
+
+        //    slide.addText("Projected Start Date:", opts(.2, y, height, 2.6, labelTextStyle));
+        //    slide.addText(reportModel.ProjectedStartDate, opts(1.8, y + .04, height, 1.5, smallBoldBodyTextStyle));
+
+        //    slide.addText("Est. Completion Date:", opts(2.85, y, height, 2.6, labelTextStyle));
+        //    slide.addText(reportModel.EstimatedCompletionDate, opts(4.5, y + .04, height, 1.5, smallBoldBodyTextStyle));
+        //}
+
+        //function addDividerLines(slide) {
+        //    // Horizontal
+        //    slide.addShape(pptx.shapes.LINE, { x: .2, y: .95, w: 12.55, h: 0, line: smithfieldDarkGray, lineSize: 1 });
+        //    // Vertical
+        //    slide.addShape(pptx.shapes.LINE, { x: 1.95, y: 1.38, w: 0, h: 5.84, line: smithfieldDarkGray, lineSize: 1 });
+        //}
+
+        //function addIcon(slide) {
+
+        //    var iconX = .19;
+        //    var iconY = 1.45;
+        //    var iconWidth = 1.66;
+        //    var iconHeight = iconWidth;
+        //    var icon;
+
+        //    switch (reportModel.ParentPillarId) {
+        //        case "CI": icon = "Content/Images/continuous-improvement.png"; break; 
+        //        case "NPC": icon = "Content/Images/new-plant-capacity.png"; break;
+        //        case "OG": icon = "Content/Images/organic-growth.png"; break;
+        //        case "REG": icon = "Content/Images/regulatory.png"; break;
+        //        case "REPL": icon = "Content/Images/replacement.png"; break;
+        //        case "SP": icon = "Content/Images/strategy-pivot.png"; break;
+        //        case "SUS": icon = "Content/Images/sustainability"; break;
+        //        default: icon = "";
+        //    }
+        //    slide.addImage({ path: icon, x: iconX, y: iconY, w: iconWidth, h: iconHeight });
+        //}
+
+        //function addProjectHeaders(slide) {
+
+        //    var height = .3;
+        //    var width = 3.3;
+        //    var x = 2.15;
+        //    var style = largeLabelTextStyle;
+
+        //    slide.addText("Project Statement", opts(x, 1.40, height, width, style));
+        //    slide.addText("Project Rationale", opts(x, 3.5, height, width, style));
+        //    slide.addText("Project Approvals", opts(8.43, 1.21, height, width, style));
+        //    slide.addText("Project Financials", opts(8.43, 5.51, height, width, style));
+        //}
+
+        //function addProjectFinancials(slide) {
+
+        //    var height = .3;
+        //    var width = 2.62;
+        //    var style1 = bodyTextStyle;
+        //    var style2 = boldBodyTextStyle;
+
+        //    slide.addText("CAPITAL", opts(8.43, 5.84, height, width, style1));
+        //    slide.addText("$" + reportModel.capitalFinancial, opts(9.9, 5.84, height, width, style1));
+
+        //    slide.addText("EXPENSE", opts(8.43, 6.07, height, width, style1));
+        //    slide.addText("$" + reportModel.expenseFinancial, opts(9.9, 6.07, height, width, style1));
+
+        //    slide.addText("LEASE", opts(8.43, 6.30, height, width, style1));
+        //    slide.addText("$" + reportModel.leaseFinancial, opts(9.9, 6.30, height, width, style1));
+
+        //    slide.addShape(pptx.shapes.LINE, { x: 8.43, y: 6.61, w: 3.84, h: 0, line: smithfieldDarkGray, lineSize: 1 });
+        //    slide.addText("PROJECT TOTAL", opts(8.43, 6.68, height, width, style2));
+        //    slide.addText("$" + reportModel.totalFinancial, opts(9.9, 6.68, height, width, style2));
+
+        //    slide.addText("AVG. PAYBACK TOTAL (months)", opts(8.43, 7.0, height, width, style2));
+        //    slide.addText(reportModel.monthsFinancial, opts(10.9, 7.0, height, width, style2));
+
+        //}
+
+        //function addProjectData(slide) {
+
+        //    var height = 3.5;
+        //    var width = 6.0;
+        //    var x = 2.15;
+        //    var style = smallBodyTextStyle;
+
+        //    slide.addText(reportModel.ProjectStatement + '\n\n' + reportModel.ProjectReason, opts(x, 1.73, 1.77, width, style));
+        //    slide.addText(reportModel.ProjectJustification, opts(x, 3.8, 1.55, width, style));
+        //}
+
+        //function addApprovalsBox(slide) {
+        //    var i = 0;
+        //    var x = 8.64;
+        //    var deltaX = 4.0;
+        //    var deltaY = 0.38;
+        //    var approvals = reportModel.approvals;
+
+        //    slide.addShape(pptx.shapes.RECTANGLE, { x: 8.44, y: 1.59, w: 4.31, h: 3.86, line: '000000' });
+        //    slide.addText("Reviewer", opts(8.73, 1.65, .3, 1.56, labelTextStyle));
+        //    slide.addText("Approval Date", opts(11.19, 1.65, .3, 1.56, labelTextStyle));
+
+        //    $.each(approvals, function (index, approval) {
+
+        //        var completion;
+        //        if (approval.CompletionDate != null) {
+        //            completion = approval.CompletionDate.split('T')[0];
+        //        }
+        //        else {
+        //            completion = approval.CurStatus;
+        //        }
+
+        //        slide.addText(approval.UserName, opts(8.73, 1.97 + i * deltaY, .27, 2.36, smallBoldBodyTextStyle));
+        //        slide.addText(approval.RoleName, opts(8.73, 2.17 + i * deltaY, .18, 2.36, extraSmallBoldBodyTextStyle));
+        //        slide.addText(completion, opts(11.28, 1.97 + i * deltaY, .23, 1.07, smallBoldBodyTextStyle));
+        //        i++;
+        //    });
+        //}
+
+        //function addSimplePayback(slide) {
+        //    var paybacks = reportModel.paybacks.value;
+        //    var x = 2.15;
+        //    var deltaX = 4.0;
+        //    var deltaY = 0.2;
+        //    var height = .3;
+        //    var width = 3.3;
+        //    var i = 0;
+        //    var total = 0;
+
+        //    // Headers
+        //    slide.addText("Simple Payback", opts(x, 5.2, height, width, largeLabelTextStyle));
+        //    slide.addText("Total Payback", opts(4.16, 6.9, height, width, largeLabelTextStyle));
+
+        //    $.each(paybacks, function () {
+        //        slide.addText(this.Name, opts(x, 5.5 + i * deltaY, height, width, bodyTextStyle));
+        //        slide.addText("$" + this.Amount, opts(x + deltaX, 5.5 + i * deltaY, height, width, bodyTextStyle));
+        //        total += this.Amount;
+        //        i++;
+        //    });
+
+        //    slide.addText("$" + total, opts(x + deltaX, 6.9, height, width, boldBodyTextStyle));
+        //}
+
+        //function addLogo(slide) {
+        //    slide.addImage({ path: "logo.png", x: 11.76, y: .18, w: .75, h: .31 });
+        //}
+
+        //function opts(x, y, h, w, style) {
+        //    var options = {};
+        //    options.valign = "top";
+        //    options.x = x;
+        //    options.y = y;
+        //    options.h = h;
+        //    options.w = w;
+        //    options.fontSize = style.fontSize;
+        //    options.color = style.color;
+        //    options.fontFace = style.fontFace;
+        //    options.bold = style.bold;
+        //    options.italics = style.italics;
+        //    return options;
+        //}
+
+        //  --- PowerPoint End -----
+
+    </script>
+
+    <ef:EntityDataSource ID="dsCurComment" runat="server"
+        ContextTypeName="eCAR3Lib.Models.eCAR3Entities"
+        EnableUpdate="true"
+        EntitySetName="CARComments"
+        OnSelecting="dsCurComment_Selecting">
+    </ef:EntityDataSource>
+
+    <ef:EntityDataSource ID="dsComments" runat="server"
+        ContextTypeName="eCAR3Lib.Models.eCAR3Entities"
+        EnableDelete="false"
+        EnableInsert="false"
+        EnableUpdate="false"
+        Where="it.CARId = @CarID"
+        OrderBy="it.Timestmp DESC"
+        EntitySetName="vComments">
+        <WhereParameters>
+            <asp:ControlParameter ControlID="hfCARId" DbType="Int32" Name="CarID" />
+        </WhereParameters>
+    </ef:EntityDataSource>
+
+    <asp:HiddenField ID="hfCARId" runat="server" />
+
+    <dx:ASPxCallbackPanel runat="server" ID="cbComments" ClientEnabled="true" ClientInstanceName="cbComments" OnCallback="cbComments_Callback">
+        <PanelCollection>
+            <dx:PanelContent runat="server">
+                <dx:ASPxPopupControl
+                    ID="WFCommentsWindow"
+                    runat="server"
+                    AllowDragging="True"
+                    AllowResize="True"
+                    CloseAction="CloseButton"
+                    EnableViewState="False"
+                    PopupHorizontalAlign="Center"
+                    PopupVerticalAlign="Middle"
+                    ShowFooter="False"
+                    ShowOnPageLoad="False"
+                    Width="400px"
+                    Height="325px"
+                    MinWidth="310px"
+                    MinHeight="280px"
+                    ClientInstanceName="WFCommentsWindow"
+                    EnableHierarchyRecreation="True">
+                    <ContentStyle Paddings-Padding="0" />
+                    <ClientSideEvents />
+                    <ContentCollection>
+                        <dx:PopupControlContentControl>
+                            <dx:ASPxPanel runat="server">
+                                <Paddings PaddingLeft="12px" PaddingRight="12px" PaddingTop="10px" PaddingBottom="10px" />
+                                <PanelCollection>
+                                    <dx:PanelContent>
+                                        Please enter comments
+                                    </dx:PanelContent>
+                                </PanelCollection>
+
+                            </dx:ASPxPanel>
+                            <dx:ASPxFormLayout runat="server" ID="layoutWFComments" Width="100%" Height="100%" ShowItemCaptionColon="false">
+                                <Items>
+                                    <dx:LayoutItem Caption="Comments ">
+                                        <CaptionSettings Location="Top" />
+                                        <LayoutItemNestedControlCollection>
+                                            <dx:LayoutItemNestedControlContainer>
+                                                <dx:ASPxMemo ID="txtComments" runat="server" Width="100%" Height="250px" EnableViewState="False">
+                                                    <ValidationSettings ValidationGroup="valComments" ErrorDisplayMode="ImageWithTooltip" ErrorTextPosition="Left">
+                                                        <RequiredField ErrorText="Comments are required" IsRequired="True" />
+                                                    </ValidationSettings>
+                                                    <ClientSideEvents GotFocus="function(s, e) { s.SelectAll() }" />
+                                                </dx:ASPxMemo>
+                                            </dx:LayoutItemNestedControlContainer>
+                                        </LayoutItemNestedControlCollection>
+                                    </dx:LayoutItem>
+                                    <dx:LayoutItem ShowCaption="False" HorizontalAlign="Right">
+                                        <ParentContainerStyle Paddings-PaddingTop="5" />
+                                        <LayoutItemNestedControlCollection>
+                                            <dx:LayoutItemNestedControlContainer>
+                                                <dx:ASPxButton ValidationGroup="valComments" ID="btnSaveWFComments" runat="server" Text="Save and Close" AutoPostBack="false" CausesValidation="true" BackColor="#0083A9">
+                                                    <ClientSideEvents Click="onWFCommentsSave" />
+                                                </dx:ASPxButton>
+                                            </dx:LayoutItemNestedControlContainer>
+                                        </LayoutItemNestedControlCollection>
+                                    </dx:LayoutItem>
+                                </Items>
+                            </dx:ASPxFormLayout>
+                        </dx:PopupControlContentControl>
+                    </ContentCollection>
+
+                </dx:ASPxPopupControl>
+            </dx:PanelContent>
+        </PanelCollection>
+    </dx:ASPxCallbackPanel>
+
+    <dx:ASPxSplitter ID="ContentSplitter" runat="server" Width="100%" Height="100%">
+        <Styles>
+            <Pane>
+                <Paddings Padding="0px" />
+            </Pane>
+        </Styles>
+        <Panes>
+
+            <dx:SplitterPane Name="ContentCenter" ScrollBars="Auto">
+                <PaneStyle CssClass="contentPane"></PaneStyle>
+                <Separator Visible="True">
+                    <SeparatorStyle>
+                        <border borderwidth="1px" />
+                        <BorderTop BorderWidth="0px" />
+                    </SeparatorStyle>
+                </Separator>
+
+                <ContentCollection>
+                    <dx:SplitterContentControl>
+
+                        <div>
+
+                            <dx:ASPxFormLayout ID="layoutWorkflowButtons" runat="server" Width="100%" ShowItemCaptionColon="false">
+                                <SettingsItemCaptions Location="Top" />
+                                <Items>
+                                    <dx:LayoutGroup Caption="Work Item" GroupBoxDecoration="HeadingLine">
+                                        <Items>
+                                            <dx:LayoutItem ShowCaption="false">
+                                                <LayoutItemNestedControlCollection>
+                                                    <dx:LayoutItemNestedControlContainer>
+
+                                                        <table border="0" style="width: 100%;" runat="server" id="tblLayout">
+                                                            <tr>
+                                                                <td style="width: 5%; padding-left: 5px;">
+                                                                    <dx:ASPxButton runat="server" ID="btnSave" Text="Save" ToolTip="Save CAR" ClientInstanceName="btnSave" AutoPostBack="false" BackColor="#0083A9">
+                                                                        <ClientSideEvents Click="onMasterSave" />
+                                                                    </dx:ASPxButton>
+                                                                </td>
+                                                                <td style="width: 5%; padding-left: 5px;">
+                                                                    <dx:ASPxButton runat="server" ID="btnWF0" Text="Placeholder" AutoPostBack="false" ClientInstanceName="btnWF0" BackColor="#008000"></dx:ASPxButton>
+                                                                </td>
+                                                                <td style="width: 5%; padding-left: 5px;">
+                                                                    <dx:ASPxButton runat="server" ID="btnWF1" Text="Placeholder" AutoPostBack="false" ClientInstanceName="btnWF1" BackColor="#FF0000"></dx:ASPxButton>
+                                                                </td>
+                                                                <td style="width: 5%; padding-left: 5px;">
+                                                                    <dx:ASPxButton runat="server" ID="btnWF2" Text="Placeholder" AutoPostBack="false" ClientInstanceName="btnWF2" BackColor="#FF4500"></dx:ASPxButton>
+                                                                </td>
+                                                                <td style="width: 5%; padding-left: 5px;">
+                                                                    <dx:ASPxButton runat="server" ID="btnWF3" Text="Placeholder" AutoPostBack="false" ClientInstanceName="btnWF3" BackColor="#0083A9"></dx:ASPxButton>
+                                                                </td>
+                                                                <td style="width: 5%; padding-left: 5px;">
+                                                                    <dx:ASPxButton runat="server" ID="btnWF4" Text="Placeholder" AutoPostBack="false" ClientInstanceName="btnWF4" BackColor="#0083A9"></dx:ASPxButton>
+                                                                </td>
+                                                                <td style="width: 5%; padding-left: 5px;">
+                                                                    <dx:ASPxButton ID="btnAddComments" runat="server" Text="Add Comments" ToolTip="Create new comments for CAR" AutoPostBack="false" ClientInstanceName="btnAddComments" BackColor="#0083A9" HorizontalAlign="Right">
+                                                                        <ClientSideEvents Click="function(s,e) { popupComments.Show(); }" />
+                                                                    </dx:ASPxButton>
+                                                                </td>
+                                                                <td style="width: 55%;" />
+                                                                <td style="width: 5%; padding-left: 5px;">
+                                                                    <dx:ASPxButton ID="btnPrint" runat="server" Text="⎙ Print" AutoPostBack="false" ToolTip="Print CAR" ClientInstanceName="btnPrint" BackColor="#0083A9" ClientVisible="true" HorizontalAlign="Right">
+                                                                        <ClientSideEvents Click="printCarForm" />
+                                                                    </dx:ASPxButton>
+                                                                </td>
+                                                                <td style="width: 5%; padding-left: 5px;">
+                                                                    <dx:ASPxButton ID="btnPrintPowerPoint" runat="server" Text="⎙ Print PowerPoint" ToolTip="Print CAR into PowerPoint file" AutoPostBack="false" ClientInstanceName="btnPrintPowerPoint" BackColor="#0083A9" HorizontalAlign="Right">
+                                                                        <ClientSideEvents Click="function(s,e) {e.processOnServer = powerPoint();}" />
+                                                                    </dx:ASPxButton>
+                                                                </td>
+                                                            </tr>
+                                                        </table>
+                                                    </dx:LayoutItemNestedControlContainer>
+                                                </LayoutItemNestedControlCollection>
+                                            </dx:LayoutItem>
+                                        </Items>
+                                    </dx:LayoutGroup>
+                                </Items>
+                            </dx:ASPxFormLayout>
+                        </div>
+
+                        <dx:ASPxCallback runat="server" ClientInstanceName="cbMasterSave" ID="cbMasterSave" OnCallback="cbMasterSave_Callback">
+                            <ClientSideEvents CallbackComplete="onMasterSaveComplete" />
+                        </dx:ASPxCallback>
+
+                        <dx:ASPxCallback runat="server" ClientInstanceName="cbMasterAction" ID="cbMasterAction" OnCallback="cbMasterAction_Callback">
+                            <ClientSideEvents CallbackComplete="onMasterActionComplete" />
+                        </dx:ASPxCallback>
+
+                        <asp:ContentPlaceHolder ID="MainContent" runat="server" />
+
+                        <%--<div>
+                            <uc1:CommentsCtrl runat="server" ID="CommentsCtrl" />
+                        </div>--%>
+                    </dx:SplitterContentControl>
+                </ContentCollection>
+            </dx:SplitterPane>
+        </Panes>
+    </dx:ASPxSplitter>
+
+    <dx:ASPxPopupControl ID="ASPxPopupControlValidationSummary" runat="server" AllowDragging="True" AllowResize="True" CloseAction="CloseButton"
+        EnableViewState="False" PopupElementID="createLink" PopupHorizontalAlign="WindowCenter" PopupVerticalAlign="Middle"
+        ShowFooter="true" ShowOnPageLoad="false" Width="500px" Height="325px" MinWidth="310px" MinHeight="280px"
+        FooterText="" HeaderText="[ASPxPopupControlValidationSummary_HeaderText]" ClientInstanceName="pcValidationSummary" EnableHierarchyRecreation="True"
+        FooterStyle-Wrap="True" CloseOnEscape="true">
+        <ContentStyle Paddings-Padding="0" />
+        <ClientSideEvents />
+        <ContentCollection>
+            <dx:PopupControlContentControl>
+                <dx:ASPxPanel runat="server">
+                    <Paddings PaddingLeft="12px" PaddingRight="12px" PaddingTop="10px" PaddingBottom="10px" />
+                    <PanelCollection>
+                        <dx:PanelContent>
+                            <span id="spanPcValidationSummary_HtmlContent">[spanPcValidationSummary_HtmlContent]</span><br />
+                            <br />
+                            <dx:ASPxValidationSummary ValidationGroup="vgCAR" ID="vsValidationSummary1" runat="server" RenderMode="BulletedList" CssClass="summaryIndent"
+                                Width="250px" ClientInstanceName="validationSummary">
+                            </dx:ASPxValidationSummary>
+                            <br />
+                            <span id="spanPcValidationSummary_HtmlFooter">[spanPcValidationSummary_HtmlFooter]</span>
+                        </dx:PanelContent>
+                    </PanelCollection>
+                </dx:ASPxPanel>
+            </dx:PopupControlContentControl>
+        </ContentCollection>
+        <FooterTemplate>
+        </FooterTemplate>
+    </dx:ASPxPopupControl>
+
+
+    <dx:ASPxCallbackPanel runat="server" ID="cbModal" ClientEnabled="true" ClientInstanceName="cbModal" OnCallback="cbModal_Callback">
+        <PanelCollection>
+            <dx:PanelContent runat="server">
+                <dx:ASPxPopupControl
+                    ID="popupComments"
+                    runat="server"
+                    Width="800"
+                    Height="300"
+                    CloseAction="CloseButton"
+                    CloseOnEscape="true"
+                    Modal="True"
+                    PopupHorizontalAlign="WindowCenter"
+                    PopupVerticalAlign="WindowCenter"
+                    ClientInstanceName="popupComments"
+                    HeaderText="Add Comments"
+                    AllowDragging="False"
+                    PopupAnimationType="None"
+                    EnableViewState="False"
+                    AutoUpdatePosition="true">
+                    <ContentCollection>
+                        <dx:PopupControlContentControl runat="server">
+                            <dx:ASPxPanel ID="Panel1" runat="server" DefaultButton="btnCancel">
+                                <PanelCollection>
+                                    <dx:PanelContent runat="server">
+                                        <dx:ASPxFormLayout runat="server" ID="ASPxFormLayout2" Width="100%" Height="100%">
+                                            <Items>
+                                                <dx:LayoutItem Caption="Previous Comments">
+                                                    <CaptionSettings Location="Top" />
+                                                    <LayoutItemNestedControlCollection>
+                                                        <dx:LayoutItemNestedControlContainer>
+                                                            <dx:ASPxGridView
+                                                                ID="gvPrevComments"
+                                                                ClientInstanceName="gvPrevComments"
+                                                                runat="server"
+                                                                DataSourceID="dsComments"
+                                                                KeyFieldName="CARCommentsId"
+                                                                AutoGenerateColumns="False"
+                                                                Theme="MaterialCompact">
+                                                                <Columns>
+                                                                    <dx:GridViewDataTextColumn Caption="Name" FieldName="UserName" Width="200" VisibleIndex="1"></dx:GridViewDataTextColumn>
+                                                                    <dx:GridViewDataTextColumn Caption="Role" FieldName="RoleCategory" Width="100" VisibleIndex="2"></dx:GridViewDataTextColumn>
+                                                                    <dx:GridViewDataDateColumn Caption="Date" FieldName="Timestmp" Width="100" VisibleIndex="3"></dx:GridViewDataDateColumn>
+                                                                    <dx:GridViewDataTextColumn Caption="Comments" FieldName="Comments" Width="400" VisibleIndex="4"></dx:GridViewDataTextColumn>
+                                                                </Columns>
+                                                                <Settings VerticalScrollableHeight="200" VerticalScrollBarMode="Visible" />
+                                                            </dx:ASPxGridView>
+                                                        </dx:LayoutItemNestedControlContainer>
+                                                    </LayoutItemNestedControlCollection>
+                                                </dx:LayoutItem>
+                                                <dx:LayoutItem Caption="Comments">
+                                                    <CaptionSettings Location="Top" />
+                                                    <LayoutItemNestedControlCollection>
+                                                        <dx:LayoutItemNestedControlContainer>
+                                                            <dx:ASPxMemo ID="memoComments" runat="server" Width="100%" Height="100px" EnableViewState="False">
+                                                                <ValidationSettings EnableCustomValidation="True" ValidationGroup="entryGroup"
+                                                                    SetFocusOnError="True" ErrorDisplayMode="Text" ErrorTextPosition="Bottom" CausesValidation="True">
+                                                                    <RequiredField ErrorText="Comments are required" IsRequired="True" />
+                                                                    <RegularExpression ErrorText="Comments required" />
+                                                                    <ErrorFrameStyle Font-Size="10px">
+                                                                        <ErrorTextPaddings PaddingLeft="0px" />
+                                                                    </ErrorFrameStyle>
+                                                                </ValidationSettings>
+                                                            </dx:ASPxMemo>
+                                                        </dx:LayoutItemNestedControlContainer>
+                                                    </LayoutItemNestedControlCollection>
+                                                </dx:LayoutItem>
+                                                <dx:LayoutItem ShowCaption="False">
+                                                    <LayoutItemNestedControlCollection>
+                                                        <dx:LayoutItemNestedControlContainer>
+                                                            <dx:ASPxButton ID="btnSubmit" Text="Submit" runat="server" Width="80px" AutoPostBack="False"
+                                                                Style="float: left; margin-right: 8px" BackColor="#0083A9">
+                                                                <ClientSideEvents Click="onCommentSubmit" />
+                                                            </dx:ASPxButton>
+                                                            <dx:ASPxButton ID="btnCancel" Text="Cancel" runat="server" Width="80px" AutoPostBack="False"
+                                                                Style="float: left; margin-right: 8px" BackColor="#0083A9">
+                                                                <ClientSideEvents Click="function(s, e) { popupComments.Hide(); }" />
+                                                            </dx:ASPxButton>
+                                                        </dx:LayoutItemNestedControlContainer>
+                                                    </LayoutItemNestedControlCollection>
+                                                </dx:LayoutItem>
+                                            </Items>
+                                        </dx:ASPxFormLayout>
+                                    </dx:PanelContent>
+                                </PanelCollection>
+                            </dx:ASPxPanel>
+                        </dx:PopupControlContentControl>
+                    </ContentCollection>
+                </dx:ASPxPopupControl>
+
+            </dx:PanelContent>
+        </PanelCollection>
+    </dx:ASPxCallbackPanel>
+
+</asp:Content>
